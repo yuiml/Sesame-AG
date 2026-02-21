@@ -291,33 +291,26 @@ public class NewRpcBridge implements RpcBridge {
                         String response = rpcEntity.getResponseString();
                         String methodName = rpcEntity.getRequestMethod();
 
-                        // 检测安全验证错误，自动启动目标应用（带防抖和版本检查）
+                        // 检测安全验证错误，提示手动处理（带防抖）
 
                         if (errorMessage != null && errorMessage.contains("为了保障您的操作安全，请进行验证后继续")) {
-                            // 检查版本号，只有版本低于等于10.6.58.99999才自动启动目标应用
-                            if (!ApplicationHook.shouldEnableSimplePageManager()) {
-                              //  Log.record(TAG, "目标应用版本不支持自动启动目标应用进行滑块验证，跳过");
-                                return null;
-                            }
                             long currentTime = System.currentTimeMillis();
                             long timeSinceLastStart = currentTime - lastAlipayStartTime;
                             if (timeSinceLastStart < ALIPAY_START_DEBOUNCE_TIME) {
-                                 Log.record(TAG, "距离上次启动目标应用仅 " + timeSinceLastStart + "ms，跳过本次启动");
+                                 Log.record(TAG, "距离上次提醒仅 " + timeSinceLastStart + "ms，跳过本次提醒");
                             } else {
                                 synchronized (alipayStartLock) {
                                     // 双重检查，防止多线程竞争
                                     currentTime = System.currentTimeMillis();
                                     timeSinceLastStart = currentTime - lastAlipayStartTime;
                                     if (timeSinceLastStart < ALIPAY_START_DEBOUNCE_TIME) {
-                                         Log.record(TAG, "距离上次启动目标应用仅 " + timeSinceLastStart + "ms，跳过本次启动（双重检查）");
+                                         Log.record(TAG, "距离上次提醒仅 " + timeSinceLastStart + "ms，跳过本次提醒（双重检查）");
                                     } else {
                                         lastAlipayStartTime = currentTime;
-                                         Log.record(TAG, "检测到安全验证错误，自动启动目标应用进行滑块中...");
+                                         Log.record(TAG, "检测到安全验证错误，请手动打开目标应用完成验证后继续");
                                         Toast.INSTANCE.show(
-                                                "为了保障您的操作安全，请进行验证后继续,自动启动目标应用进行滑块中..."
+                                                "为了保障您的操作安全，请打开支付宝完成验证后继续"
                                         );
-                                        // 使用增强的shell命令启动目标应用，
-                                        SwipeUtil.startAlipay(ApplicationHook.appContext);
                                     }
                                 }
                             }

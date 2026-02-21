@@ -61,17 +61,17 @@ fun ServicesStatusCard(
                     is ServiceStatus.Active -> {
                         Icon(Icons.Outlined.CheckCircle, "已授权")
                         Column(Modifier.padding(start = 20.dp)) {
-                            Text(text = "滑块验证服务正常", style = MaterialTheme.typography.titleMedium)
+                            Text(text = "Shell 服务正常", style = MaterialTheme.typography.titleMedium)
                             Text(text = "授权方式: ${status.type}", style = MaterialTheme.typography.bodyMedium)
                             Spacer(Modifier.height(4.dp))
-                            Text(text = "仅支持版本低于 10.6.58.xxxx的目标应用", style = MaterialTheme.typography.bodySmall)
+                            Text(text = "部分辅助功能需要此权限", style = MaterialTheme.typography.bodySmall)
                         }
                     }
 
                     is ServiceStatus.Inactive -> {
                         Icon(Icons.Outlined.Warning, "未授权")
                         Column(Modifier.padding(start = 20.dp)) {
-                            Text(text = "滑块验证服务不可用", style = MaterialTheme.typography.titleMedium)
+                            Text(text = "Shell 服务不可用", style = MaterialTheme.typography.titleMedium)
                             Text(text = "点击查看解决方案", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
@@ -102,7 +102,7 @@ fun ServicesStatusCard(
                     Text(text = "授权指南", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "本模块需要后台执行 Shell 命令来处理滑块验证。\n\n" +
+                        text = "本模块需要后台执行 Shell 命令来提供部分辅助能力。\n\n" +
                                 "可选方案：\n" +
                                 "1. Shizuku (推荐)：免 Root，需安装 Shizuku APP 并激活。\n" +
                                 "2. Root：如果你已 Root，请授予本应用 Root 权限。",
