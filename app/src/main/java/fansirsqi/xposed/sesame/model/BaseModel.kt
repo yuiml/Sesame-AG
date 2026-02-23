@@ -1,6 +1,5 @@
 package fansirsqi.xposed.sesame.model
 
-import fansirsqi.xposed.sesame.BuildConfig
 import fansirsqi.xposed.sesame.model.modelFieldExt.BooleanModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.ChoiceModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.IntegerModelField
@@ -50,12 +49,9 @@ class BaseModel : Model() {
         modelFields.addField(setMaxErrorCount) //异常次数阈值
         modelFields.addField(newRpc) //是否启用新接口
         modelFields.addField(customRpcScheduleEnable) //自定义RPC(配置文件+定时执行)
-
-        if (BuildConfig.DEBUG) {
-            modelFields.addField(debugMode) //是否开启抓包调试模式
-            modelFields.addField(sendHookData) //启用Hook数据转发
-            modelFields.addField(sendHookDataUrl) //Hook数据转发地址
-        }
+        modelFields.addField(debugMode) //是否开启抓包调试模式
+        modelFields.addField(sendHookData) //启用Hook数据转发
+        modelFields.addField(sendHookDataUrl) //Hook数据转发地址
 
         modelFields.addField(batteryPerm) //是否申请目标应用的后台运行权限
         modelFields.addField(recordLog) //是否记录record日志

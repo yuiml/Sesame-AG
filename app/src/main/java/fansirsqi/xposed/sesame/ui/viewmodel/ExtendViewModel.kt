@@ -9,7 +9,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import com.fasterxml.jackson.core.type.TypeReference
-import fansirsqi.xposed.sesame.BuildConfig
 import fansirsqi.xposed.sesame.R
 import fansirsqi.xposed.sesame.model.CustomSettings
 import fansirsqi.xposed.sesame.util.DataStore
@@ -84,22 +83,19 @@ class ExtendViewModel : ViewModel() {
         })
 
         // 4. Debug 功能
-        if (BuildConfig.DEBUG) {
+        menuItems.add(MenuItem("写入光盘") {
+            currentDialog = ExtendDialog.WritePhotoTest("xxxx")
+        })
 
-            menuItems.add(MenuItem("写入光盘") {
-                currentDialog = ExtendDialog.WritePhotoTest("xxxx")
-            })
+        menuItems.add(MenuItem("获取DataStore字段") {
+            currentDialog = ExtendDialog.InputDialog("输入字段Key") { key ->
+                handleGetDataStore(context, key)
+            }
+        })
 
-            menuItems.add(MenuItem("获取DataStore字段") {
-                currentDialog = ExtendDialog.InputDialog("输入字段Key") { key ->
-                    handleGetDataStore(context, key)
-                }
-            })
-
-            menuItems.add(MenuItem("TestShow") {
-                ToastUtil.showToast(context, "shizuku:"+isShizukuReady().toString())
-            })
-        }
+        menuItems.add(MenuItem("TestShow") {
+            ToastUtil.showToast(context, "shizuku:" + isShizukuReady().toString())
+        })
     }
 
     // --- 业务逻辑 ---

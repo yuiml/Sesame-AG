@@ -97,7 +97,6 @@ public class WebSettingsActivity extends BaseActivity {
         if (intent != null) {
             userId = intent.getStringExtra("userId");
             userName = intent.getStringExtra("userName");
-            intent.getBooleanExtra("debug", BuildConfig.DEBUG);
         }
         Model.initAllModel();
         UserMap.setCurrentUserId(userId);
@@ -185,12 +184,8 @@ public class WebSettingsActivity extends BaseActivity {
                 return false;
             }
         });
-        if (BuildConfig.DEBUG) {
-            WebView.setWebContentsDebuggingEnabled(true);
-            webView.loadUrl("file:///android_asset/web/semi_index.html");
-        } else {
-            webView.loadUrl("file:///android_asset/web/semi_index.html");
-        }
+        WebView.setWebContentsDebuggingEnabled(true);
+        webView.loadUrl("file:///android_asset/web/semi_index.html");
         webView.addJavascriptInterface(new WebViewCallback(), "HOOK");
 
         webView.requestFocus();
@@ -229,9 +224,6 @@ public class WebSettingsActivity extends BaseActivity {
         @JavascriptInterface
         public String getTabs() {
             String result = JsonUtil.formatJson(tabList, false);
-            if (BuildConfig.DEBUG) {
-//                Log.record(TAG, "WebSettingsActivity.getTabs: " + result);
-            }
             return result;
         }
 
@@ -252,9 +244,6 @@ public class WebSettingsActivity extends BaseActivity {
         @JavascriptInterface
         public String getGroup() {
             String result = JsonUtil.formatJson(groupList, false);
-            if (BuildConfig.DEBUG) {
-//                Log.record(TAG, "WebSettingsActivity.getGroup: " + result);
-            }
             return result;
         }
 
@@ -270,9 +259,6 @@ public class WebSettingsActivity extends BaseActivity {
                 modelDtoList.add(new ModelDto(modelConfig.getCode(), modelConfig.getName(), modelConfig.getIcon(), groupCode, modelFields));
             }
             String result = JsonUtil.formatJson(modelDtoList, false);
-            if (BuildConfig.DEBUG) {
-//                Log.record(TAG, "WebSettingsActivity.getModelByGroup: " + result);
-            }
             return result;
         }
 
@@ -310,9 +296,6 @@ public class WebSettingsActivity extends BaseActivity {
                     list.add(ModelFieldShowDto.toShowDto(modelField));
                 }
                 String result = JsonUtil.formatJson(list, false);
-                if (BuildConfig.DEBUG) {
-//                    Log.record(TAG, "WebSettingsActivity.getModel: " + result);
-                }
                 return result;
             }
             return null;
@@ -357,9 +340,6 @@ public class WebSettingsActivity extends BaseActivity {
                 ModelField<?> modelField = modelConfig.getModelField(fieldCode);
                 if (modelField != null) {
                     String result = JsonUtil.formatJson(ModelFieldInfoDto.toInfoDto(modelField), false);
-                    if (BuildConfig.DEBUG) {
-//                        Log.record(TAG, "WebSettingsActivity.getField: " + result);
-                    }
                     return result;
                 }
             }

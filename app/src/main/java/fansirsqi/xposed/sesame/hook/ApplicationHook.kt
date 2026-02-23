@@ -578,14 +578,10 @@ class ApplicationHook {
             try {
                 if (init) destroyHandler()
 
-                // 调试模式初始化
-                if (BuildConfig.DEBUG) {
-                    try {
-                        startIfNeeded(8080, "ET3vB^#td87sQqKaY*eMUJXP", processName, General.PACKAGE_NAME)
-                        registerBroadcastReceiver(appContext!!)
-                    } catch (_: Throwable) { /* ignore */
-                    }
-                }
+                // 初始化广播（RPC 调试 / 手动任务等功能依赖）
+                try {
+                    registerBroadcastReceiver(appContext!!)
+                } catch (_: Throwable) { /* ignore */ }
 
                 ensureScheduler()
                 Model.initAllModel()
@@ -602,6 +598,15 @@ class ApplicationHook {
 
                 Config.load(userId)
                 if (!Config.isLoaded()) return false
+
+                // 仅在用户开启“抓包调试模式”时启动调试 HTTP 服务（release 也可用）
+                try {
+                    if (debugMode.value == true) {
+                        startIfNeeded(8080, "ET3vB^#td87sQqKaY*eMUJXP", processName, General.PACKAGE_NAME)
+                    } else {
+                        fansirsqi.xposed.sesame.hook.server.ModuleHttpServerManager.stop()
+                    }
+                } catch (_: Throwable) { /* ignore */ }
 
                 Notify.start(service!!)
                 setWakenAtTimeAlarm()

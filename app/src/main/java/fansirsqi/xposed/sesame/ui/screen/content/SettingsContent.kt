@@ -31,7 +31,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
-import fansirsqi.xposed.sesame.BuildConfig
 import fansirsqi.xposed.sesame.data.General
 import fansirsqi.xposed.sesame.entity.UserEntity
 import fansirsqi.xposed.sesame.ui.MainActivity
@@ -117,24 +116,22 @@ fun SettingsContent(
                 )
             }
 
-            if (BuildConfig.DEBUG) {
-                item {
-                    SettingsItem(
-                        title = "手动调度任务",
-                        icon = Icons.Rounded.SatelliteAlt,
-                        onClick = {
-                            context.startActivity(Intent(context, ManualTaskActivity::class.java))
-                        }
-                    )
-                }
+            item {
+                SettingsItem(
+                    title = "手动调度任务",
+                    icon = Icons.Rounded.SatelliteAlt,
+                    onClick = {
+                        context.startActivity(Intent(context, ManualTaskActivity::class.java))
+                    }
+                )
+            }
 
-                item {
-                    SettingsItem(
-                        title = "查看RPC抓包数据",
-                        icon = Icons.AutoMirrored.Rounded.LibraryBooks,
-                        onClick = { onEvent(MainActivity.MainUiEvent.OpenCaptureLog) }
-                    )
-                }
+            item {
+                SettingsItem(
+                    title = "查看RPC抓包数据",
+                    icon = Icons.AutoMirrored.Rounded.LibraryBooks,
+                    onClick = { onEvent(MainActivity.MainUiEvent.OpenCaptureLog) }
+                )
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
