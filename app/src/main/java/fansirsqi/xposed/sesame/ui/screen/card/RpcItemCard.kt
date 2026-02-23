@@ -73,6 +73,13 @@ fun RpcItemCard(
                         overflow = TextOverflow.Ellipsis,
                         fontFamily = FontFamily.Monospace
                     )
+                    if (item.scheduleEnabled && item.dailyCount > 0) {
+                        Text(
+                            text = "⏰ 定时：每日 ${item.dailyCount} 次",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
                 }
                 IconButton(
                     onClick = onRun,

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixHigh
@@ -25,6 +26,7 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -36,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -57,6 +60,12 @@ fun RpcDialogHandler(state: RpcDialogState, viewModel: RpcDebugViewModel) {
             var name by remember { mutableStateOf(state.initialName) }
             var description by remember { mutableStateOf(state.initialDesc) }
             var json by remember { mutableStateOf(state.initialJson) }
+            var scheduleEnabled by remember { mutableStateOf(state.initialScheduleEnabled) }
+            var dailyCountText by remember {
+                mutableStateOf(
+                    if (state.initialDailyCount > 0) state.initialDailyCount.toString() else "1"
+                )
+            }
 
             Dialog(
                 onDismissRequest = { viewModel.dismissDialog() },
@@ -146,6 +155,48 @@ fun RpcDialogHandler(state: RpcDialogState, viewModel: RpcDebugViewModel) {
                             maxLines = 4
                         )
 
+                        // 3. 定时执行设置（与“自定义RPC定时执行”使用同一份 JSON 配置）
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.surfaceContainerLow
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(text = "定时执行", style = MaterialTheme.typography.titleSmall)
+                                        Text(
+                                            text = "⚠️ 高风险功能，建议只用于查询类 RPC",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+                                    Switch(
+                                        checked = scheduleEnabled,
+                                        onCheckedChange = { checked ->
+                                            scheduleEnabled = checked
+                                            if (!checked) dailyCountText = "0"
+                                            val current = dailyCountText.toIntOrNull() ?: 0
+                                            if (checked && current <= 0) dailyCountText = "1"
+                                        }
+                                    )
+                                }
+
+                                OutlinedTextField(
+                                    value = dailyCountText,
+                                    onValueChange = { dailyCountText = it.filter { c -> c.isDigit() } },
+                                    label = { Text("每日次数") },
+                                    enabled = scheduleEnabled,
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+
                         // 3. JSON 数据输入框
                         OutlinedTextField(
                             value = json,
@@ -198,7 +249,10 @@ fun RpcDialogHandler(state: RpcDialogState, viewModel: RpcDebugViewModel) {
                             }
                             Spacer(Modifier.width(8.dp))
                             Button(
-                                onClick = { viewModel.saveItem(name, description, json, state.item) },
+                                onClick = {
+                                    val dailyCount = dailyCountText.trim().toIntOrNull() ?: 0
+                                    viewModel.saveItem(name, description, json, scheduleEnabled, dailyCount, state.item)
+                                },
                                 modifier = Modifier.width(120.dp)
                             ) {
                                 Text("保存")

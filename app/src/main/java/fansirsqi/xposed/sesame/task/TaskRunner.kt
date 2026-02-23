@@ -3,6 +3,7 @@ package fansirsqi.xposed.sesame.task
 import android.annotation.SuppressLint
 import fansirsqi.xposed.sesame.data.Status
 import fansirsqi.xposed.sesame.hook.ApplicationHook
+import fansirsqi.xposed.sesame.hook.CustomRpcScheduler
 import fansirsqi.xposed.sesame.model.BaseModel
 import fansirsqi.xposed.sesame.model.CustomSettings
 import fansirsqi.xposed.sesame.model.Model
@@ -75,6 +76,9 @@ class CoroutineTaskRunner(allModels: List<Model>) {
 
             CustomSettings.loadForTaskRunner()
             val status = CustomSettings.getOnceDailyStatus(enableLog = true)
+
+            // 自定义 RPC（配置文件 + 定时执行）：每个调度周期执行一次（对每条最多执行 1 次）
+            CustomRpcScheduler.runIfEnabled()
 
             // 执行多轮任务
             repeat(rounds) { roundIndex ->

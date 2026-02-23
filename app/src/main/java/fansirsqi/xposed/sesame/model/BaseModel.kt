@@ -49,6 +49,7 @@ class BaseModel : Model() {
         modelFields.addField(errNotify) //异常通知开关
         modelFields.addField(setMaxErrorCount) //异常次数阈值
         modelFields.addField(newRpc) //是否启用新接口
+        modelFields.addField(customRpcScheduleEnable) //自定义RPC(配置文件+定时执行)
 
         if (BuildConfig.DEBUG) {
             modelFields.addField(debugMode) //是否开启抓包调试模式
@@ -225,6 +226,17 @@ class BaseModel : Model() {
 
         @Getter
         val sendHookDataUrl: StringModelField = StringModelField("sendHookDataUrl", "Hook数据转发地址", "http://127.0.0.1:9527/hook")
+
+        /**
+         * 自定义 RPC（配置文件 + 定时执行）
+         *
+         * - 配置文件路径：`Android/media/.../sesame-AG/rpcRequest.json`（与「RPC 调试」同一份 JSON）
+         * - 定时执行开关与每日次数在「RPC 调试」条目内设置
+         * - 执行日志输出到“抓包日志(capture)”
+         */
+        @Getter
+        val customRpcScheduleEnable: BooleanModelField =
+            BooleanModelField("customRpcScheduleEnable", "自定义RPC | 配置文件定时执行(慎用)", false)
 
         /**
          * 清理数据，在模块销毁时调用，清空 Reserve 和 Beach 数据。

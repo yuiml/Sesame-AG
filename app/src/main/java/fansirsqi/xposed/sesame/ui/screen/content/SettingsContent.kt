@@ -106,18 +106,18 @@ fun SettingsContent(
 
 
 
-            if (BuildConfig.DEBUG) {
-                item {
-                    SettingsItem(
-                        title = "RPC 调试工具",
-                        icon = Icons.Rounded.BugReport,
-                        onClick = {
-                            // 直接跳转 Activity
-                            context.startActivity(Intent(context, RpcDebugActivity::class.java))
-                        }
-                    )
-                }
+            item {
+                SettingsItem(
+                    title = "RPC 调试工具",
+                    icon = Icons.Rounded.BugReport,
+                    onClick = {
+                        // 直接跳转 Activity
+                        context.startActivity(Intent(context, RpcDebugActivity::class.java))
+                    }
+                )
+            }
 
+            if (BuildConfig.DEBUG) {
                 item {
                     SettingsItem(
                         title = "手动调度任务",
