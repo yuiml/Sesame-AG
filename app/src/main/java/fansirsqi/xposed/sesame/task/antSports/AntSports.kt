@@ -246,7 +246,11 @@ class AntSports : ModelTask() {
     /**
      * @brief Xposed 启动时 hook 步数读取逻辑，实现自定义步数同步
      */
-    override fun boot(classLoader: ClassLoader) {
+    override fun boot(classLoader: ClassLoader?) {
+        if (classLoader == null) {
+            Log.error(TAG, "ClassLoader is null, skip hook readDailyStep")
+            return
+        }
         try {
             XposedHelpers.findAndHookMethod(
                 "com.alibaba.health.pedometer.core.datasource.PedometerAgent",
@@ -273,7 +277,7 @@ class AntSports : ModelTask() {
      * @brief 任务主入口
      */
     override fun runJava() {
-        Log.record(TAG, "执行开始-" + name)
+        Log.record(TAG, "执行开始-${getName()}")
 
         try {
             val loader = ApplicationHook.classLoader
@@ -283,55 +287,56 @@ class AntSports : ModelTask() {
             }
 
             // 健康岛整体任务（任务大厅 + 泡泡 + 走路建造）
-            if (neverlandTask.value || neverlandGrid.value) {
+            if (neverlandTask.value == true || neverlandGrid.value == true) {
                 Log.record(TAG, "开始执行健康岛")
                 NeverlandTaskHandler().runNeverland()
                 Log.record(TAG, "健康岛结束")
             }
 
             // 步数同步
+            val earliestHour = (earliestSyncStepTime.value ?: 0).coerceIn(0, 23)
             if (!Status.hasFlagToday(StatusFlags.FLAG_ANTSPORTS_SYNC_STEP_DONE) &&
-                TimeUtil.isNowAfterOrCompareTimeStr(String.format("%02d00", earliestSyncStepTime.value.coerceIn(0, 23)))) {
+                TimeUtil.isNowAfterOrCompareTimeStr(String.format("%02d00", earliestHour))) {
                 syncStepTask()
             }
 
             // 运动任务
             if (!Status.hasFlagToday(StatusFlags.FLAG_ANTSPORTS_DAILY_TASKS_DONE) &&
-                sportsTasksField.value) {
+                sportsTasksField.value == true) {
                 sportsTasks()
             }
 
             // 运动球任务
-            if (sportsEnergyBubble.value) {
+            if (sportsEnergyBubble.value == true) {
                 sportsEnergyBubbleTask()
             }
 
             // 新版行走路线
-            if (walk.value) {
+            if (walk.value == true) {
                 getWalkPathThemeIdOnConfig()
                 walk()
             }
 
             // 旧版路线：只开宝箱
-            if (openTreasureBox.value && !walk.value) {
+            if (openTreasureBox.value == true && walk.value != true) {
                 queryMyHomePage(loader)
             }
 
             // 捐能量
-            if (donateCharityCoin.value && Status.canDonateCharityCoin()) {
+            if (donateCharityCoin.value == true && Status.canDonateCharityCoin()) {
                 queryProjectList(loader)
             }
 
             // 捐步
             val currentUid = UserMap.currentUid
-            if (minExchangeCount.value > 0 &&
+            if ((minExchangeCount.value ?: 0) > 0 &&
                 currentUid != null &&
                 Status.canExchangeToday(currentUid)) {
                 queryWalkStep(loader)
             }
 
             // 文体中心
-            if (tiyubiz.value) {
+            if (tiyubiz.value == true) {
                 userTaskGroupQuery("SPORTS_DAILY_SIGN_GROUP")
                 userTaskGroupQuery("SPORTS_DAILY_GROUP")
                 userTaskRightsReceive()
@@ -340,14 +345,14 @@ class AntSports : ModelTask() {
             }
 
             // 抢好友大战
-            if (battleForFriends.value) {
+            if (battleForFriends.value == true) {
                 queryClubHome()
                 queryTrainItem()
                 buyMember()
             }
 
             // 首页金币
-            if (receiveCoinAssetField.value) {
+            if (receiveCoinAssetField.value == true) {
                 receiveCoinAsset()
             }
 
@@ -355,7 +360,7 @@ class AntSports : ModelTask() {
             Log.record(TAG, "runJava error:")
             Log.printStackTrace(TAG, t)
         } finally {
-            Log.record(TAG, "执行结束-" + name)
+            Log.record(TAG, "执行结束-${getName()}")
         }
     }
 
@@ -411,7 +416,7 @@ class AntSports : ModelTask() {
         if (tmpStepCount >= 0) {
             return tmpStepCount
         }
-        tmpStepCount = syncStepCount.value
+        tmpStepCount = syncStepCount.value ?: 0
         if (tmpStepCount > 0) {
             tmpStepCount = RandomUtil.nextInt(tmpStepCount, tmpStepCount + 2000)
             if (tmpStepCount > 100_000) {
@@ -982,7 +987,7 @@ class AntSports : ModelTask() {
      * @brief 根据主题 ID 挑选可加入的 pathId
      */
     private fun queryJoinPath(themeId: String?): String? {
-        if (walkCustomPath.value) {
+        if (walkCustomPath.value == true) {
             return walkCustomPathId.value
         }
         var pathId: String? = null
@@ -1037,8 +1042,8 @@ class AntSports : ModelTask() {
      * @brief 根据配置索引同步更新路线主题 ID
      */
     private fun getWalkPathThemeIdOnConfig() {
-        val index = walkPathTheme.value
-        if (index >= 0 && index < WalkPathTheme.themeIds.size) {
+        val index = walkPathTheme.value ?: WalkPathTheme.DA_MEI_ZHONG_GUO
+        if (index in 0 until WalkPathTheme.themeIds.size) {
             walkPathThemeId = WalkPathTheme.themeIds[index]
         } else {
             Log.error(TAG, "非法的路线主题索引: $index，已回退至默认主题")
@@ -1210,7 +1215,8 @@ class AntSports : ModelTask() {
                     openTreasureBox(boxNo, userId)
                     return
                 }
-                if (delay < BaseModel.checkInterval.value) {
+                val checkIntervalMs = BaseModel.checkInterval.value?.toLong() ?: 0L
+                if (delay < checkIntervalMs) {
                     val taskId = "BX|$boxNo"
                     if (hasChildTask(taskId)) return
                     Log.record(TAG, "还有 $delay ms 开运动宝箱")
@@ -1278,22 +1284,24 @@ class AntSports : ModelTask() {
         try {
             var jo = JSONObject(AntSportsRpcCall.queryProjectList(0))
             if (ResChecker.checkRes(TAG, jo)) {
+                val donateAmount = donateCharityCoinAmount.value ?: return
+                if (donateAmount <= 0) return
                 var charityCoinCount = jo.getInt("charityCoinCount")
-                if (charityCoinCount < donateCharityCoinAmount.value) return
+                if (charityCoinCount < donateAmount) return
 
                 val ja = jo.getJSONObject("projectPage").getJSONArray("data")
                 for (i in 0 until ja.length()) {
-                    if (charityCoinCount < donateCharityCoinAmount.value) break
+                    if (charityCoinCount < donateAmount) break
                     val basicModel = ja.getJSONObject(i).getJSONObject("basicModel")
                     if ("DONATE_COMPLETED" == basicModel.getString("footballFieldStatus")) break
                     donate(
                         loader,
-                        donateCharityCoinAmount.value,
+                        donateAmount,
                         basicModel.getString("projectId"),
                         basicModel.getString("title")
                     )
                     Status.donateCharityCoin()
-                    charityCoinCount -= donateCharityCoinAmount.value
+                    charityCoinCount -= donateAmount
                     if (donateCharityCoinType.value == DonateCharityCoinType.ONE) break
                 }
             } else {
@@ -1334,7 +1342,9 @@ class AntSports : ModelTask() {
                 val produceQuantity = jo.getInt("produceQuantity")
                 val hour = TimeUtil.getFormatTime().split(":").first().toInt()
 
-                if (produceQuantity >= minExchangeCount.value || hour >= latestExchangeTime.value) {
+                val minExchange = minExchangeCount.value ?: 0
+                val latestHour = latestExchangeTime.value ?: 24
+                if (produceQuantity >= minExchange || hour >= latestHour) {
                     AntSportsRpcCall.walkDonateSignInfo(produceQuantity)
                     s = AntSportsRpcCall.donateWalkHome(produceQuantity)
                     jo = JSONObject(s)
@@ -1645,7 +1655,7 @@ class AntSports : ModelTask() {
      */
     private fun queryClubHome() {
         try {
-            val maxCount = zeroCoinLimit.value
+            val maxCount = zeroCoinLimit.value ?: Int.MAX_VALUE
             if (zeroTrainCoinCount >= maxCount) {
                 val today = TimeUtil.getDateStr2()
                 DataStore.put(TRAIN_FRIEND_ZERO_COIN_DATE, today)
@@ -1696,7 +1706,7 @@ class AntSports : ModelTask() {
 
                 if (amount <= 0) {
                     zeroTrainCoinCount++
-                    val maxCount = zeroCoinLimit.value
+                    val maxCount = zeroCoinLimit.value ?: Int.MAX_VALUE
                     if (zeroTrainCoinCount >= maxCount) {
                         val today = TimeUtil.getDateStr2()
                         DataStore.put(TRAIN_FRIEND_ZERO_COIN_DATE, today)
@@ -1850,7 +1860,7 @@ class AntSports : ModelTask() {
                     val memberIdFromRank = memberModel.optString("memberId")
                     if (originBossId.isEmpty() || memberIdFromRank.isEmpty()) continue
 
-                    var isTarget = originBossIdList.value.contains(originBossId)
+                    var isTarget = originBossIdList.value?.contains(originBossId) == true
                     if (battleForFriendType.value == BattleForFriendType.DONT_ROB) {
                         isTarget = !isTarget
                     }
@@ -1889,7 +1899,7 @@ class AntSports : ModelTask() {
                     if (ResChecker.checkRes(TAG, buyMemberResponse)) {
                         val userName = UserMap.getMaskName(originBossId) ?: originBossId
                         Log.other("抢购好友🥋[成功:将 $userName 抢回来]")
-                        if (trainFriend.value) {
+                        if (trainFriend.value == true) {
                             queryTrainItem()
                         }
                         return
@@ -1928,8 +1938,10 @@ class AntSports : ModelTask() {
         private val TAG = "Neverland"
 
         /** @brief 最大失败次数（优先使用 BaseModel 配置，默认 5 次） */
-        private val MAX_ERROR_COUNT: Int =
-            if (BaseModel.setMaxErrorCount.value > 0) BaseModel.setMaxErrorCount.value else 5
+        private val MAX_ERROR_COUNT: Int = run {
+            val v = BaseModel.setMaxErrorCount.value ?: 0
+            if (v > 0) v else 5
+        }
 
         /** @brief 任务循环间隔（毫秒） */
         private val TASK_LOOP_DELAY: Long = 1000
@@ -1940,7 +1952,7 @@ class AntSports : ModelTask() {
         fun runNeverland() {
             try {
                 Log.record(TAG, "开始执行健康岛任务")
-                if (neverlandTask.value) {
+                if (neverlandTask.value == true) {
                     // 1. 签到
                     neverlandDoSign()
                     // 2. 任务大厅循环处理
@@ -1951,7 +1963,7 @@ class AntSports : ModelTask() {
                     neverlandPickAllBubble()
                 }
 
-                if (neverlandGrid.value) {
+                if (neverlandGrid.value == true) {
                     // 5. 自动走路建造
                     neverlandAutoTask()
                 }
@@ -2039,7 +2051,7 @@ class AntSports : ModelTask() {
             var errorCount = 0
             Log.record(TAG, "开始循环处理任务大厅（失败限制：$MAX_ERROR_COUNT 次）")
 
-            while (true) {
+            while (!Thread.currentThread().isInterrupted) {
                 try {
                     if (errorCount >= MAX_ERROR_COUNT) {
                         Log.error(TAG, "任务处理失败次数达到上限，停止循环")
@@ -2442,7 +2454,7 @@ class AntSports : ModelTask() {
          */
         private fun checkDailyStepLimit(): Int {
             var stepCount = Status.getIntFlagToday(StatusFlags.FLAG_NEVERLAND_STEP_COUNT) ?: 0
-            val maxStepLimit = neverlandGridStepCount.value
+            val maxStepLimit = neverlandGridStepCount.value ?: 0
             val remainSteps = maxStepLimit - stepCount
 
             Log.record(
@@ -2659,7 +2671,7 @@ class AntSports : ModelTask() {
                         chooseAvailableMap()
                         break
                     }
-                    Thread.sleep(888)
+                    GlobalThreadPools.sleepCompat(888)
                 }
                 Log.record(TAG, "自动走路任务完成 ✓")
             } catch (t: Throwable) {

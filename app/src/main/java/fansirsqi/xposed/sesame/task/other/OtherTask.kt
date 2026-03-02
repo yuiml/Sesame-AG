@@ -74,7 +74,7 @@ class OtherTask : ModelTask() {
 
     override suspend fun runSuspend() {
         try {
-            if (credit2101!!.value) {
+            if (credit2101?.value == true) {
                 Credit2101.doCredit2101(autoOpenChest!!.value==true,creditOptions!!)
             }
         } catch (e: Exception) {

@@ -2,6 +2,7 @@ package fansirsqi.xposed.sesame.hook.server
 
 import fansirsqi.xposed.sesame.hook.server.handlers.DebugHandler
 import fansirsqi.xposed.sesame.hook.server.handlers.HttpHandler
+import fansirsqi.xposed.sesame.hook.server.handlers.StatusHandler
 import fansirsqi.xposed.sesame.util.Log
 import fi.iki.elonen.NanoHTTPD
 import java.io.DataInputStream
@@ -18,6 +19,7 @@ class ModuleHttpServer(
     init {
         // 注册路由
         register("/debugHandler", DebugHandler(secretToken), "调试接口")
+        register("/status", StatusHandler(secretToken), "运行状态快照")
     }
 
     @Suppress("SameParameterValue")

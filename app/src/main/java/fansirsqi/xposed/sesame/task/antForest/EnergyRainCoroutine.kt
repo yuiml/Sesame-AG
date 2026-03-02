@@ -94,7 +94,7 @@ object EnergyRainCoroutine {
                     Log.record(TAG, "有送能量雨的机会")
                     val joEnergyRainCanGrantList = JSONObject(AntForestRpcCall.queryEnergyRainCanGrantList())
                     val grantInfos = joEnergyRainCanGrantList.optJSONArray("grantInfos") ?: org.json.JSONArray()
-                    val giveEnergyRainSet = AntForest.giveEnergyRainList!!.value
+                    val giveEnergyRainSet = AntForest.giveEnergyRainList?.value ?: emptySet()
                     var granted = false
 
                     for (j in 0 until grantInfos.length()) {

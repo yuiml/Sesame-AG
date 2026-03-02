@@ -52,10 +52,9 @@ import fansirsqi.xposed.sesame.model.BaseModel.Companion.sendHookData
 import fansirsqi.xposed.sesame.model.BaseModel.Companion.sendHookDataUrl
 import fansirsqi.xposed.sesame.model.BaseModel.Companion.wakenAtTimeList
 import fansirsqi.xposed.sesame.model.Model
+import fansirsqi.xposed.sesame.task.CoroutineTaskRunner
 import fansirsqi.xposed.sesame.task.MainTask
-import fansirsqi.xposed.sesame.task.MainTask.Companion.newInstance
 import fansirsqi.xposed.sesame.task.ModelTask.Companion.stopAllTask
-import fansirsqi.xposed.sesame.task.TaskRunnerAdapter
 import fansirsqi.xposed.sesame.task.antForest.AntForest
 import fansirsqi.xposed.sesame.task.customTasks.CustomTask
 import fansirsqi.xposed.sesame.task.customTasks.ManualTask
@@ -74,7 +73,6 @@ import fansirsqi.xposed.sesame.util.Notify.stop
 import fansirsqi.xposed.sesame.util.Notify.updateStatusText
 import fansirsqi.xposed.sesame.util.PermissionUtil
 import fansirsqi.xposed.sesame.util.PermissionUtil.checkBatteryPermissions
-import fansirsqi.xposed.sesame.util.StatusManager.updateStatus
 import fansirsqi.xposed.sesame.util.TimeUtil
 import fansirsqi.xposed.sesame.util.maps.UserMap
 import fansirsqi.xposed.sesame.util.maps.UserMap.currentUid
@@ -86,26 +84,12 @@ import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Member
 import java.lang.reflect.Method
 import java.util.Calendar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.concurrent.Volatile
 
 class ApplicationHook {
     var xposedInterface: XposedInterface? = null
-
-    private object BroadcastActions {
-        const val RESTART: String = "com.eg.android.AlipayGphone.sesame.restart"
-        const val RE_LOGIN: String = "com.eg.android.AlipayGphone.sesame.reLogin"
-        const val STATUS: String = "com.eg.android.AlipayGphone.sesame.status"
-        const val RPC_TEST: String = "com.eg.android.AlipayGphone.sesame.rpctest"
-        const val MANUAL_TASK: String = "com.eg.android.AlipayGphone.sesame.manual_task"
-    }
-
-    private object AlipayClasses {
-        const val APPLICATION: String = "com.alipay.mobile.framework.AlipayApplication"
-        const val SOCIAL_SDK: String = "com.alipay.mobile.personalbase.service.SocialSdkContactService"
-        const val LAUNCHER_ACTIVITY: String = "com.alipay.mobile.quinox.LauncherActivity"
-        const val SERVICE: String = "android.app.Service"
-        const val LOADED_APK: String = "android.app.LoadedApk"
-    }
 
     private class TaskLock : AutoCloseable {
         private val acquired: Boolean
@@ -163,8 +147,8 @@ class ApplicationHook {
         isHooked = true
 
         // 3. 基础环境 Hook
-        ModuleStatus.detectFramework(classLoader!!)
-        updateStatus(ModuleStatus.detectFramework(classLoader!!), packageName)
+        val framework = ModuleStatus.detectFramework(classLoader!!)
+        ModuleStatusReporter.updateNow(framework = framework, packageName = packageName, reason = "hook_detect")
         VersionHook.installHook(classLoader)
         initReflection(classLoader!!)
 
@@ -192,14 +176,14 @@ class ApplicationHook {
 
     private fun initReflection(loader: ClassLoader) {
         try {
-            XposedHelpers.findClass(AlipayClasses.APPLICATION, loader)
-            XposedHelpers.findClass(AlipayClasses.SOCIAL_SDK, loader)
+            XposedHelpers.findClass(ApplicationHookConstants.AlipayClasses.APPLICATION, loader)
+            XposedHelpers.findClass(ApplicationHookConstants.AlipayClasses.SOCIAL_SDK, loader)
         } catch (_: Throwable) {
             // ignore
         }
 
         try {
-            @SuppressLint("PrivateApi") val loadedApkClass = loader.loadClass(AlipayClasses.LOADED_APK)
+            @SuppressLint("PrivateApi") val loadedApkClass = loader.loadClass(ApplicationHookConstants.AlipayClasses.LOADED_APK)
             deoptimizeClass(loadedApkClass)
         } catch (_: Throwable) {
             // ignore
@@ -241,29 +225,32 @@ class ApplicationHook {
     private fun hookLauncherResume() {
         try {
             XposedHelpers.findAndHookMethod(
-                AlipayClasses.LAUNCHER_ACTIVITY,
+                ApplicationHookConstants.AlipayClasses.LAUNCHER_ACTIVITY,
                 classLoader,
                 "onResume",
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam?) {
-                        val targetUid = HookUtil.getUserId(classLoader!!)
-                        if (targetUid == null) {
-                            show("用户未登录")
-                            return
-                        }
-                        if (!init) {
-                            if (initHandler()) init = true
-                            return
-                        }
-                        val currentUid = currentUid
-                        if (targetUid != currentUid) {
-                            if (currentUid != null) {
-                                initHandler()
-                                lastExecTime = 0
-                                show("用户已切换")
-                                return
+                        ApplicationHookConstants.submitEntry("launcher_onResume") {
+                            val targetUid = HookUtil.getUserId(classLoader!!) ?: run {
+                                show("用户未登录")
+                                return@submitEntry
                             }
-                            HookUtil.hookUser(classLoader!!)
+
+                            if (!init) {
+                                if (initHandler("onResume")) init = true
+                                return@submitEntry
+                            }
+
+                            val currentUid = currentUid
+                            if (targetUid != currentUid) {
+                                if (currentUid != null) {
+                                    initHandler("user_switch")
+                                    lastExecTime = 0
+                                    show("用户已切换")
+                                    return@submitEntry
+                                }
+                                HookUtil.hookUser(classLoader!!)
+                            }
                         }
                     }
                 })
@@ -274,7 +261,7 @@ class ApplicationHook {
 
     private fun hookServiceLifecycle(apkPath: String) {
         try {
-            XposedHelpers.findAndHookMethod(AlipayClasses.SERVICE, classLoader, "onCreate", object : XC_MethodHook() {
+            XposedHelpers.findAndHookMethod(ApplicationHookConstants.AlipayClasses.SERVICE, classLoader, "onCreate", object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val appService = param.thisObject as Service
                     if (General.CURRENT_USING_SERVICE != appService.javaClass.getCanonicalName()) {
@@ -285,15 +272,16 @@ class ApplicationHook {
                     appContext = appService.applicationContext
                     ensureScheduler()
 
-                    mainTask = newInstance("主任务") { runMainTaskLogic() }
+                    mainTask = MainTask("主任务") { runMainTaskLogic() }
                     dayCalendar = Calendar.getInstance()
-                    if (initHandler()) {
+                    val initReason = pendingInitReason ?: "service_onCreate"
+                    if (initHandler(initReason)) {
                         init = true
                     }
                 }
             })
 
-            XposedHelpers.findAndHookMethod(AlipayClasses.SERVICE, classLoader, "onDestroy", object : XC_MethodHook() {
+            XposedHelpers.findAndHookMethod(ApplicationHookConstants.AlipayClasses.SERVICE, classLoader, "onDestroy", object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val s = param.thisObject as Service
                     if (General.CURRENT_USING_SERVICE == s.javaClass.getCanonicalName()) {
@@ -332,19 +320,26 @@ class ApplicationHook {
             }
 
             when (action) {
-                BroadcastActions.RESTART -> execute(Runnable {
-                    val targetUserId = intent.getStringExtra("userId")
-                    val currentUserId = HookUtil.getUserId(classLoader!!)
-                    if (targetUserId != null && targetUserId != currentUserId) {
-                        record(TAG, "忽略非当前用户的重启广播: target=$targetUserId, current=$currentUserId")
-                        return@Runnable
+                ApplicationHookConstants.BroadcastActions.RESTART -> {
+                    val safeIntent = Intent(intent)
+                    ApplicationHookConstants.submitEntry("broadcast_restart") {
+                        val targetUserId = safeIntent.getStringExtra("userId")
+                        val currentUserId = HookUtil.getUserId(classLoader!!)
+                        if (targetUserId != null && targetUserId != currentUserId) {
+                            record(TAG, "忽略非当前用户的重启广播: target=$targetUserId, current=$currentUserId")
+                            return@submitEntry
+                        }
+                        initHandler("broadcast_restart")
                     }
-                    initHandler()
-                })
+                }
 
-                BroadcastActions.RE_LOGIN -> reOpenApp()
-                BroadcastActions.RPC_TEST -> handleRpcTest(intent)
-                BroadcastActions.MANUAL_TASK -> {
+                ApplicationHookConstants.BroadcastActions.EXECUTE -> handleExecuteBroadcast(context, intent)
+
+                ApplicationHookConstants.BroadcastActions.PRE_WAKEUP -> handlePreWakeupBroadcast(context, intent)
+
+                ApplicationHookConstants.BroadcastActions.RE_LOGIN -> reOpenApp()
+                ApplicationHookConstants.BroadcastActions.RPC_TEST -> handleRpcTest(intent)
+                ApplicationHookConstants.BroadcastActions.MANUAL_TASK -> {
                     record(TAG, "🚀 收到手动庄园任务指令")
                     execute {
                         val taskName = intent.getStringExtra("task")
@@ -393,15 +388,78 @@ class ApplicationHook {
             }
         }
 
+        private fun handleExecuteBroadcast(context: Context?, intent: Intent) {
+            val safeIntent = Intent(intent)
+            val isAlarmTriggered = safeIntent.getBooleanExtra("alarm_triggered", false)
+            val wakenAtTime = safeIntent.getBooleanExtra("waken_at_time", false)
+            val wakenTime = safeIntent.getStringExtra("waken_time")?.trim().takeIf { !it.isNullOrBlank() }
+            val normalizedWakenTime = if (wakenAtTime && wakenTime.isNullOrBlank()) "0000" else wakenTime
+
+            val trigger = ApplicationHookConstants.TriggerInfo(
+                type = ApplicationHookConstants.TriggerType.BROADCAST_EXECUTE,
+                priority = if (isAlarmTriggered || wakenAtTime) {
+                    ApplicationHookConstants.TriggerPriority.HIGH
+                } else {
+                    ApplicationHookConstants.TriggerPriority.NORMAL
+                },
+                alarmTriggered = isAlarmTriggered,
+                wakenAtTime = wakenAtTime,
+                wakenTime = normalizedWakenTime,
+                reason = "broadcast_execute",
+                dedupeKey = when {
+                    wakenAtTime && !normalizedWakenTime.isNullOrBlank() -> "wakeup_$normalizedWakenTime"
+                    isAlarmTriggered -> "alarm_execute"
+                    else -> "broadcast_execute"
+                }
+            )
+
+            ApplicationHookConstants.submitEntry("broadcast_execute") {
+                if (!isReadyForExec()) {
+                    record(TAG, "execute broadcast received but not ready: init=$init loaded=${Config.isLoaded()} service=${service != null}")
+                }
+                ApplicationHookCore.requestExecution(trigger)
+            }
+        }
+
+        private fun handlePreWakeupBroadcast(context: Context?, intent: Intent) {
+            val ctx = context?.applicationContext ?: context
+            if (ctx == null) return
+
+            val safeIntent = Intent(intent)
+            val executionTimeMillis = safeIntent.getLongExtra("execution_time", 0L)
+            val now = System.currentTimeMillis()
+            val delayMillis = executionTimeMillis - now
+
+            val triggerAtExecTime = ApplicationHookConstants.TriggerInfo(
+                type = ApplicationHookConstants.TriggerType.BROADCAST_PREWAKEUP,
+                priority = ApplicationHookConstants.TriggerPriority.HIGH,
+                alarmTriggered = true,
+                reason = if (executionTimeMillis > 0) "prewakeup_to_${TimeUtil.getCommonDate(executionTimeMillis)}" else "prewakeup",
+                dedupeKey = if (executionTimeMillis > 0) "prewakeup_$executionTimeMillis" else "prewakeup"
+            )
+
+            SmartSchedulerManager.initialize(ctx)
+            if (executionTimeMillis > 0 && delayMillis > 0) {
+                record(TAG, "收到 prewakeup，计划在 ${TimeUtil.getCommonDate(executionTimeMillis)} 执行 (delay=${TimeUtil.formatDuration(delayMillis)})")
+                schedule(delayMillis, "prewakeup_execute") {
+                    ApplicationHookCore.requestExecution(triggerAtExecTime)
+                }
+                return
+            }
+
+            record(TAG, "收到 prewakeup，但 execution_time 无效/已过期，立即触发一次执行链路")
+            ApplicationHookCore.requestExecution(triggerAtExecTime)
+        }
+
         private fun handleRpcTest(intent: Intent) {
             execute({
                 record(TAG, "RPC测试: $intent")
                 try {
                     val rpc = DebugRpc()
                     rpc.start(
-                        intent.getStringExtra("method"),
-                        intent.getStringExtra("data"),
-                        intent.getStringExtra("type")
+                        intent.getStringExtra("method") ?: "",
+                        intent.getStringExtra("data") ?: "",
+                        intent.getStringExtra("type") ?: ""
                     )
                 } catch (_: Throwable) { /* ignore */
                 }
@@ -442,26 +500,28 @@ class ApplicationHook {
         private var init = false
 
         @Volatile
-        var dayCalendar: Calendar?
+        private var pendingInit = false
 
-        @JvmField
         @Volatile
-        var offline: Boolean = false
+        private var pendingInitReason: String? = null
 
-        @JvmStatic
-        fun setOffline(value: Boolean) {
-            offline = value
-        }
+        @Volatile
+        var dayCalendar: Calendar?
 
         @Volatile
         private var batteryPermissionChecked = false
 
         @SuppressLint("StaticFieldLeak")
+        @Volatile
         var service: Service? = null
 
         var mainHandler: Handler? = null
 
         var mainTask: MainTask? = null
+
+        internal fun isReadyForExec(): Boolean {
+            return init && Config.isLoaded() && service != null
+        }
 
         @Volatile
         var rpcBridge: RpcBridge? = null
@@ -474,14 +534,13 @@ class ApplicationHook {
 
         @Volatile
         var nextExecutionTime: Long = 0
-        private const val MAX_INACTIVE_TIME: Long = 3600000 // 1小时
 
         // Deoptimize 方法缓存
         private val deoptimizeMethod: Method?
 
         init {
             dayCalendar = Calendar.getInstance()
-            resetToMidnight(dayCalendar!!)
+            ApplicationHookUtils.resetToMidnight(dayCalendar!!)
             var m: Method? = null
             try {
                 m = XposedBridge::class.java.getDeclaredMethod("deoptimizeMethod", Member::class.java)
@@ -490,29 +549,37 @@ class ApplicationHook {
             deoptimizeMethod = m
         }
 
-        private fun runMainTaskLogic() {
+        private suspend fun runMainTaskLogic() = withContext(Dispatchers.IO) {
             try {
                 TaskLock().use { _ ->
-                    if (!init || !Config.isLoaded()) return
+                    if (!init || !Config.isLoaded()) return@withContext
+
+                    val trigger = ApplicationHookConstants.consumePendingTrigger()
+                    record(TAG, "🎯 本次执行触发: ${trigger?.summary() ?: "<none>"}")
+
                     val currentTime = System.currentTimeMillis()
                     if (currentTime - lastExecTime < 2000) {
                         record(TAG, "⚠️ 间隔过短，跳过")
-                        schedule(checkInterval.value.toLong(), "间隔重试") {
-                            execHandler()
+                        schedule((checkInterval.value ?: 0).toLong(), "间隔重试") {
+                            ApplicationHookEntry.onIntervalRetry()
                         }
-                        return
+                        return@withContext
                     }
 
                     val currentUid = currentUid
                     val targetUid = HookUtil.getUserId(classLoader!!)
                     if (targetUid == null || targetUid != currentUid) {
                         reOpenApp()
-                        return
+                        return@withContext
                     }
 
                     lastExecTime = currentTime
-                    TaskRunnerAdapter().run()
+
+                    val models = Model.modelArray.filterNotNull()
+                    CoroutineTaskRunner(models).run(isFirst = true)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: IllegalStateException) {
                 record(TAG, "⚠️ " + e.message)
             } catch (e: Exception) {
@@ -541,7 +608,7 @@ class ApplicationHook {
         fun scheduleNextExecutionInternal(lastTime: Long) {
             try {
                 checkInactiveTime()
-                val checkInterval = checkInterval.value
+                val checkInterval = checkInterval.value ?: 0
                 val execAtTimeList = execAtTimeList.value
                 if (execAtTimeList != null && execAtTimeList.contains("-1")) {
                     record(TAG, "定时执行未开启")
@@ -551,7 +618,7 @@ class ApplicationHook {
                 var targetTime: Long = 0
                 if (execAtTimeList != null) {
                     val lastCal = TimeUtil.getCalendarByTimeMillis(lastTime)
-                    val nextCal = TimeUtil.getCalendarByTimeMillis(lastTime + checkInterval)
+                    val nextCal = TimeUtil.getCalendarByTimeMillis(lastTime + checkInterval.toLong())
                     for (timeStr in execAtTimeList) {
                         val execCal = TimeUtil.getTodayCalendarByTimeStr(timeStr)
                         if (execCal != null && lastCal < execCal && nextCal > execCal) {
@@ -565,7 +632,7 @@ class ApplicationHook {
                 nextExecutionTime = if (targetTime > 0) targetTime else (lastTime + delayMillis)
                 ensureScheduler()
                 schedule(delayMillis, "轮询任务") {
-                    execHandler()
+                    ApplicationHookEntry.onPollAlarm()
                 }
             } catch (e: Exception) {
                 Log.printStackTrace(TAG, "scheduleNextExecution failed", e)
@@ -574,7 +641,7 @@ class ApplicationHook {
 
         // --- 初始化核心逻辑 ---
         @Synchronized
-        private fun initHandler(): Boolean {
+        private fun initHandler(reason: String): Boolean {
             try {
                 if (init) destroyHandler()
 
@@ -586,7 +653,15 @@ class ApplicationHook {
                 ensureScheduler()
                 Model.initAllModel()
 
-                if (service == null) return false
+                if (service == null) {
+                    pendingInit = true
+                    pendingInitReason = reason
+                    record(TAG, "⏳ Service 未就绪，延后初始化: $reason")
+                    return false
+                }
+                pendingInit = false
+                pendingInitReason = null
+
                 val userId = HookUtil.getUserId(classLoader!!)
                 if (userId == null) {
                     show("用户未登录")
@@ -598,6 +673,11 @@ class ApplicationHook {
 
                 Config.load(userId)
                 if (!Config.isLoaded()) return false
+
+                // Phase 7：DataStore watcher 生命周期治理（用户切换/重载后重启 watcher，避免丢失跨进程同步能力）
+                try {
+                    init(Files.CONFIG_DIR)
+                } catch (_: Throwable) { /* ignore */ }
 
                 // 仅在用户开启“抓包调试模式”时启动调试 HTTP 服务（release 也可用）
                 try {
@@ -612,13 +692,13 @@ class ApplicationHook {
                 setWakenAtTimeAlarm()
 
                 synchronized(rpcBridgeLock) {
-                    rpcBridge = if (newRpc.value) NewRpcBridge() else OldRpcBridge()
+                    rpcBridge = if (newRpc.value == true) NewRpcBridge() else OldRpcBridge()
                     rpcBridge!!.load()
                     rpcVersion = rpcBridge!!.getVersion()
                 }
 
-                if (newRpc.value && debugMode.value) {
-                    HookUtil.hookRpcBridgeExtension(classLoader!!, sendHookData.value, sendHookDataUrl.value)
+                if (newRpc.value == true && debugMode.value == true) {
+                    HookUtil.hookRpcBridgeExtension(classLoader!!, sendHookData.value == true, sendHookDataUrl.value ?: "")
                     HookUtil.hookDefaultBridgeCallback(classLoader!!)
                 }
 
@@ -633,9 +713,12 @@ class ApplicationHook {
                 record(successMsg)
                 show(successMsg)
 
-                offline = false
+                ApplicationHookConstants.setOffline(false)
                 init = true
-                execHandler()
+                pendingInit = false
+                pendingInitReason = null
+                ModuleStatusReporter.requestUpdate(reason = "ready")
+                ApplicationHookEntry.onInitCompleted(reason)
                 return true
             } catch (th: Throwable) {
                 printStackTrace(TAG, "startHandler", th)
@@ -644,7 +727,7 @@ class ApplicationHook {
         }
 
         private fun checkBatteryPermission() {
-            if (!batteryPerm.value || batteryPermissionChecked) return
+            if (batteryPerm.value != true || batteryPermissionChecked) return
 
             val hasPermission = checkBatteryPermissions(appContext)
             batteryPermissionChecked = true
@@ -661,6 +744,11 @@ class ApplicationHook {
         @Synchronized
         fun destroyHandler() {
             try {
+                try {
+                    fansirsqi.xposed.sesame.util.DataStore.shutdown()
+                } catch (_: Throwable) {
+                    // ignore
+                }
                 shutdownAndRestart()
 
                 if (service != null) {
@@ -691,10 +779,6 @@ class ApplicationHook {
             }
         }
 
-        fun execHandler() {
-            if (mainTask != null) mainTask!!.startTask(false)
-        }
-
         private fun stopHandler() {
             if (mainTask != null) mainTask!!.stopTask()
             stopAllTask()
@@ -704,7 +788,7 @@ class ApplicationHook {
         private fun checkInactiveTime() {
             if (lastExecTime == 0L) return
             val inactiveTime: Long = System.currentTimeMillis() - lastExecTime
-            if (inactiveTime > MAX_INACTIVE_TIME) {
+            if (inactiveTime > ApplicationHookConstants.MAX_INACTIVE_TIME) {
                 record(TAG, "⚠️ 检测到长时间未执行(" + inactiveTime / 60000 + "m)，重新登录")
                 reOpenApp()
             }
@@ -714,7 +798,7 @@ class ApplicationHook {
             val now = Calendar.getInstance()
             if (dayCalendar == null || dayCalendar!!.get(Calendar.DAY_OF_MONTH) != now.get(Calendar.DAY_OF_MONTH)) {
                 dayCalendar = now.clone() as Calendar
-                resetToMidnight(dayCalendar!!)
+                ApplicationHookUtils.resetToMidnight(dayCalendar!!)
                 record(TAG, "日期更新")
                 setWakenAtTimeAlarm()
             }
@@ -722,13 +806,6 @@ class ApplicationHook {
                 save(now)
             } catch (_: Exception) {
             }
-        }
-
-        private fun resetToMidnight(calendar: Calendar) {
-            calendar.set(Calendar.HOUR_OF_DAY, 0)
-            calendar.set(Calendar.MINUTE, 0)
-            calendar.set(Calendar.SECOND, 0)
-            calendar.set(Calendar.MILLISECOND, 0)
         }
 
         fun sendBroadcast(action: String?) {
@@ -744,11 +821,11 @@ class ApplicationHook {
 
         @JvmStatic
         fun reLoginByBroadcast() {
-            sendBroadcast(BroadcastActions.RE_LOGIN)
+            sendBroadcast(ApplicationHookConstants.BroadcastActions.RE_LOGIN)
         }
 
         fun restartByBroadcast() {
-            sendBroadcast(BroadcastActions.RESTART)
+            sendBroadcast(ApplicationHookConstants.BroadcastActions.RESTART)
         }
 
         fun reOpenApp() {
@@ -776,17 +853,17 @@ class ApplicationHook {
             // 1. 每日0点
             val calendar = Calendar.getInstance()
             calendar.add(Calendar.DAY_OF_MONTH, 1)
-            resetToMidnight(calendar)
+            ApplicationHookUtils.resetToMidnight(calendar)
             val delayToMidnight = calendar.getTimeInMillis() - System.currentTimeMillis()
 
-            if (delayToMidnight > 0) {
-                schedule(delayToMidnight, "每日0点任务") {
-                    record(TAG, "⏰ 0点任务触发")
-                    updateDay()
-                    execHandler()
-                    setWakenAtTimeAlarm() // 递归设置明天
+                if (delayToMidnight > 0) {
+                    schedule(delayToMidnight, "每日0点任务") {
+                        record(TAG, "⏰ 0点任务触发")
+                        updateDay()
+                        ApplicationHookEntry.onWakeupMidnight()
+                        setWakenAtTimeAlarm() // 递归设置明天
+                    }
                 }
-            }
 
             // 2. 自定义时间
             if (wakenAtTimeList != null) {
@@ -798,7 +875,7 @@ class ApplicationHook {
                             val delay = target.getTimeInMillis() - System.currentTimeMillis()
                             schedule(delay, "自定义: $timeStr") {
                                 record(TAG, "⏰ 自定义触发: $timeStr")
-                                execHandler()
+                                ApplicationHookEntry.onWakeupCustom(timeStr)
                             }
                         }
                     } catch (_: Exception) { /* ignore */
@@ -813,11 +890,12 @@ class ApplicationHook {
             try {
                 mBroadcastReceiver = AlipayBroadcastReceiver()
                 val filter = IntentFilter()
-                filter.addAction(BroadcastActions.RESTART)
-                filter.addAction(BroadcastActions.RE_LOGIN)
-                filter.addAction(BroadcastActions.STATUS)
-                filter.addAction(BroadcastActions.RPC_TEST)
-                filter.addAction(BroadcastActions.MANUAL_TASK)
+                filter.addAction(ApplicationHookConstants.BroadcastActions.RESTART)
+                filter.addAction(ApplicationHookConstants.BroadcastActions.EXECUTE)
+                filter.addAction(ApplicationHookConstants.BroadcastActions.PRE_WAKEUP)
+                filter.addAction(ApplicationHookConstants.BroadcastActions.RE_LOGIN)
+                filter.addAction(ApplicationHookConstants.BroadcastActions.RPC_TEST)
+                filter.addAction(ApplicationHookConstants.BroadcastActions.MANUAL_TASK)
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     context.registerReceiver(mBroadcastReceiver, filter, Context.RECEIVER_EXPORTED)

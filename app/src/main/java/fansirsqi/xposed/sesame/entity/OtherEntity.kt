@@ -1,6 +1,5 @@
 package fansirsqi.xposed.sesame.entity
 
-import fansirsqi.xposed.sesame.task.antDodo.AntDodo
 import fansirsqi.xposed.sesame.task.other.credit2101.Credit2101
 
 class OtherEntity(id: String, name: String) : MapperEntity() {
@@ -37,9 +36,9 @@ object OtherEntityProvider {
 
     @JvmStatic
     fun listPropGroupOptions(): List<OtherEntity> = listOf(
-        OtherEntity(AntDodo.PropGroupType.COLLECT_ANIMAL, "当前图鉴抽卡券 🎴"),
-        OtherEntity(AntDodo.PropGroupType.ADD_COLLECT_TO_FRIEND_LIMIT, "好友卡抽卡券 👥"),
-        OtherEntity(AntDodo.PropGroupType.UNIVERSAL_CARD, "万能卡 🃏")
+        OtherEntity("COLLECT_HISTORY_ANIMAL_7_DAYS", "当前图鉴抽卡券 🎴"),
+        OtherEntity("COLLECT_TO_FRIEND_TIMES_7_DAYS", "好友卡抽卡券 👥"),
+        OtherEntity("COLLECT_TIMES_7_DAYS", "万能卡 🃏")
     )
 
 

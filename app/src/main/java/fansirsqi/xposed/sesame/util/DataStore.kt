@@ -9,14 +9,21 @@ import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.exc.MismatchedInputException
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import java.io.File
+import java.nio.file.ClosedWatchServiceException
 import java.nio.file.Path
 import java.nio.file.StandardWatchEventKinds
+import java.nio.file.WatchService
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
-import kotlin.concurrent.thread
 import kotlin.concurrent.write
 import kotlin.math.abs
 
@@ -38,6 +45,12 @@ object DataStore {
     // 用于防抖：记录最后一次写入的时间，避免自己写文件触发自己的监听
     private val lastWriteTime = AtomicLong(0)
 
+    @Volatile
+    private var watcherJob: Job? = null
+
+    @Volatile
+    private var watchService: WatchService? = null
+
     private var onChangeListener: (() -> Unit)? = null
 
     fun setOnChangeListener(listener: () -> Unit) {
@@ -45,10 +58,21 @@ object DataStore {
     }
 
     /**
+     * 关闭 DataStore 的文件监听（用于模块销毁 / 用户切换等场景）。
+     * 注意：不会清空内存数据，仅停止 watcher，避免泄露与重复 watcher。
+     */
+    fun shutdown() {
+        shutdownWatcher()
+    }
+
+    /**
      * 初始化 DataStore
      * @param dir 存储目录
      */
     fun init(dir: File) {
+        // 0. 避免重复 watcher（尤其是 UI / Hook 多次 init）
+        shutdownWatcher()
+
         // 1. 确保目录存在 (修复崩溃的核心)
         if (!dir.exists()) {
             if (!dir.mkdirs()) {
@@ -276,45 +300,83 @@ object DataStore {
         }
     }
 
-    fun startWatcherNio() = thread(name = "SesameConfigWatcher", isDaemon = true) {
+    @Synchronized
+    fun shutdownWatcher() {
+        watcherJob?.cancel()
+        watcherJob = null
+
         try {
-            if (!::storageFile.isInitialized) return@thread
+            watchService?.close()
+        } catch (_: Throwable) {
+            // ignore
+        }
+        watchService = null
+        Log.i(TAG, "DataStore watcher stopped")
+    }
 
-            val path = storageFile.toPath().parent ?: return@thread
-            val watchService = path.fileSystem.newWatchService()
-            path.register(watchService, StandardWatchEventKinds.ENTRY_MODIFY)
+    private fun startWatcherNio() {
+        if (!::storageFile.isInitialized) return
 
-            while (true) {
-                val key = try {
-                    watchService.take()
-                } catch (_: InterruptedException) {
-                    break
-                }
+        watcherJob?.cancel()
+        watcherJob = GlobalThreadPools.execute(Dispatchers.IO) {
+            val path = storageFile.toPath().parent ?: return@execute
 
-                var shouldReload = false
-                key.pollEvents().forEach { event ->
-                    // 安全转换 context
-                    val changedPath = event.context() as? Path
-                    val fileName = changedPath?.toString()
+            val watch = runCatching {
+                watchService?.close()
+                path.fileSystem.newWatchService()
+            }.getOrNull() ?: return@execute
 
-                    if (fileName == storageFile.name) {
-                        shouldReload = true
+            watchService = watch
+            runCatching {
+                path.register(watch, StandardWatchEventKinds.ENTRY_MODIFY)
+            }.onFailure { e ->
+                runCatching { watch.close() }
+                Log.e(TAG, "Failed to register watch service", e)
+                return@execute
+            }
+
+            try {
+                while (isActive) {
+                    val key = try {
+                        // 使用 poll + timeout，让取消能及时生效（而不是永久阻塞在 take()）
+                        watch.poll(1, TimeUnit.SECONDS) ?: continue
+                    } catch (_: ClosedWatchServiceException) {
+                        return@execute
+                    } catch (_: InterruptedException) {
+                        return@execute
+                    }
+
+                    var shouldReload = false
+                    key.pollEvents().forEach { event ->
+                        val changedPath = event.context() as? Path
+                        if (changedPath?.toString() == storageFile.name) {
+                            shouldReload = true
+                        }
+                    }
+
+                    if (shouldReload) {
+                        // 稍微延迟一下，等待文件写入完成
+                        delay(100)
+                        loadFromDisk()
+                    }
+
+                    if (!key.reset()) {
+                        return@execute
                     }
                 }
-
-                if (shouldReload) {
-                    // 稍微延迟一下，等待文件写入完成
-                    Thread.sleep(100)
-                    loadFromDisk()
+            } catch (_: CancellationException) {
+                // ignore
+            } catch (e: Exception) {
+                Log.e(TAG, "File watcher died", e)
+            } finally {
+                runCatching { watch.close() }
+                if (watchService === watch) {
+                    watchService = null
                 }
-
-                if (!key.reset()) {
-                    break // 目录不可访问，退出循环
-                }
+                Log.i(TAG, "DataStore watcher exited")
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "File watcher died", e)
         }
+        Log.i(TAG, "DataStore watcher started: ${storageFile.absolutePath}")
     }
 
     fun put(key: String, value: Any) = lock.write {

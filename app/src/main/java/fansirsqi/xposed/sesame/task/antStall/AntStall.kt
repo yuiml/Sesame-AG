@@ -226,7 +226,7 @@ class AntStall : ModelTask() {
     override fun runJava() {
         try {
             val tc = TimeCounter(TAG)
-            Log.record(TAG, "执行开始-$name")
+            Log.record(TAG, "执行开始-${getName()}")
 
             val homeResponse = AntStallRpcCall.home()
             val homeJson = JSONObject(homeResponse)
@@ -250,7 +250,7 @@ class AntStall : ModelTask() {
             }
 
             // 丢肥料
-            if (stallThrowManure.value) {
+            if (stallThrowManure.value == true) {
                 throwManure()
                 tc.countDebug("丢肥料")
             }
@@ -270,19 +270,19 @@ class AntStall : ModelTask() {
             tc.countDebug("请走")
 
             // 收摊
-            if (stallAutoClose.value) {
+            if (stallAutoClose.value == true) {
                 closeShop()
                 tc.countDebug("收摊")
             }
 
             // 摆摊
-            if (stallAutoOpen.value) {
+            if (stallAutoOpen.value == true) {
                 openShop()
                 tc.countDebug("摆摊")
             }
 
             // 自动任务
-            if (stallAutoTask.value) {
+            if (stallAutoTask.value == true) {
                 taskList()
                 tc.countDebug("自动任务第一次")
                 GlobalThreadPools.sleepCompat(500)
@@ -295,19 +295,19 @@ class AntStall : ModelTask() {
             tc.countDebug("新村助力")
 
             // 自动捐赠
-            if (stallDonate.value && Status.canStallDonateToday()) {
+            if (stallDonate.value == true && Status.canStallDonateToday()) {
                 donate()
                 tc.countDebug("自动捐赠")
             }
 
             // 进入下一村
-            if (roadmap.value) {
+            if (roadmap.value == true) {
                 roadmap()
                 tc.countDebug("自动进入下一村")
             }
 
             // 贴罚单
-            if (stallAutoTicket.value) {
+            if (stallAutoTicket.value == true) {
                 pasteTicket()
                 tc.countDebug("贴罚单")
             }
@@ -315,7 +315,7 @@ class AntStall : ModelTask() {
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "home err:", t)
         } finally {
-            Log.record(TAG, "执行结束-$name")
+            Log.record(TAG, "执行结束-${getName()}")
         }
     }
 
@@ -351,7 +351,7 @@ class AntStall : ModelTask() {
                 Log.error(TAG, "sendBack err: $sendBackResponse")
             }
 
-            if (stallInviteShop.value) {
+            if (stallInviteShop.value == true) {
                 inviteOpen(seatId, sentUserId)
             }
 
@@ -378,7 +378,7 @@ class AntStall : ModelTask() {
                 val friend = friendRankList.getJSONObject(i)
                 val friendUserId = friend.getString("userId")
 
-                var isInviteShop = stallInviteShopList.value.contains(friendUserId)
+                var isInviteShop = stallInviteShopList.value?.contains(friendUserId) == true
                 if (stallInviteShopType.value == StallInviteShopType.DONT_INVITE) {
                     isInviteShop = !isInviteShop
                 }
@@ -439,14 +439,14 @@ class AntStall : ModelTask() {
 
                 // 摊位空闲时尝试邀请
                 if (seat.getString("status") == "FREE") {
-                    if (stallInviteShop.value) {
+                    if (stallInviteShop.value == true) {
                         Log.record(TAG, "摊位[$i]空闲,尝试邀请好友...")
                         inviteOpen(seatId, sentUserId)
                     }
                     continue
                 }
 
-                if (!stallAllowOpenReject.value) {
+                if (stallAllowOpenReject.value != true) {
                     continue
                 }
 
@@ -456,7 +456,7 @@ class AntStall : ModelTask() {
                 }
 
                 // 白名单跳过
-                if (stallWhiteList.value.contains(rentLastUser)) {
+                if (stallWhiteList.value?.contains(rentLastUser) == true) {
                     Log.record(
                         TAG,
                         "好友[${UserMap.getMaskName(rentLastUser)}]在白名单中,跳过请走。"
@@ -468,7 +468,7 @@ class AntStall : ModelTask() {
                 val rentLastShop = seat.getString("rentLastShop")
 
                 // 黑名单直接赶走
-                if (stallBlackList.value.contains(rentLastUser)) {
+                if (stallBlackList.value?.contains(rentLastUser) == true) {
                     Log.record(
                         TAG,
                         "好友[${UserMap.getMaskName(rentLastUser)}]在黑名单中,立即请走。"
@@ -479,7 +479,8 @@ class AntStall : ModelTask() {
 
                 // 超时判断
                 val bizStartTime = seat.getLong("bizStartTime")
-                val endTime = bizStartTime + stallAllowOpenTime.value * 60 * 1000L
+                val allowMinutes = stallAllowOpenTime.value ?: 0
+                val endTime = bizStartTime + allowMinutes * 60 * 1000L
 
                 if (System.currentTimeMillis() > endTime) {
                     Log.record(TAG, "好友[${UserMap.getMaskName(rentLastUser)}]摆摊超时,立即请走。")
@@ -488,7 +489,7 @@ class AntStall : ModelTask() {
                     val taskId = "SB|$seatId"
                     if (!hasChildTask(taskId)) {
                         addChildTask(ChildModelTask(taskId, "SB", {
-                            if (stallAllowOpenReject.value) {
+                            if (stallAllowOpenReject.value == true) {
                                 sendBack(
                                     rentLastBill,
                                     seatId,
@@ -562,7 +563,8 @@ class AntStall : ModelTask() {
 
                 val rentLastEnv = shop.getJSONObject("rentLastEnv")
                 val gmtLastRent = rentLastEnv.getLong("gmtLastRent")
-                val shopTime = gmtLastRent + stallSelfOpenTime.value * 60 * 1000L
+                val selfOpenMinutes = stallSelfOpenTime.value ?: 0
+                val shopTime = gmtLastRent + selfOpenMinutes * 60 * 1000L
                 val shopId = shop.getString("shopId")
                 val rentLastBill = shop.getString("rentLastBill")
                 val rentLastUser = shop.getString("rentLastUser")
@@ -574,11 +576,11 @@ class AntStall : ModelTask() {
                     val taskId = "SH|$shopId"
                     if (!hasChildTask(taskId)) {
                         addChildTask(ChildModelTask(taskId, "SH", {
-                            if (stallAutoClose.value) {
+                            if (stallAutoClose.value == true) {
                                 shopClose(shopId, rentLastBill, rentLastUser)
                             }
                             GlobalThreadPools.sleepCompat(300L)
-                            if (stallAutoOpen.value) {
+                            if (stallAutoOpen.value == true) {
                                 openShop()
                             }
                         }, shopTime))
@@ -648,7 +650,7 @@ class AntStall : ModelTask() {
                 if (!friendRank.getBoolean("canOpenShop")) continue
 
                 val userId = friendRank.getString("userId")
-                var isStallOpen = stallOpenList.value.contains(userId)
+                var isStallOpen = stallOpenList.value?.contains(userId) == true
                 if (stallOpenType.value == StallOpenType.CLOSE) {
                     isStallOpen = !isStallOpen
                 }
@@ -907,7 +909,7 @@ class AntStall : ModelTask() {
      * @brief 领取任务奖励
      */
     private fun receiveTaskAward(taskType: String) {
-        if (!stallReceiveAward.value) return
+        if (stallReceiveAward.value != true) return
 
         try {
             val response = AntStallRpcCall.receiveTaskAward(taskType)
@@ -949,7 +951,7 @@ class AntStall : ModelTask() {
      * @brief 邀请好友注册
      */
     private fun inviteRegister(): Boolean {
-        if (!stallInviteRegister.value) return false
+        if (stallInviteRegister.value != true) return false
 
         try {
             val response = AntStallRpcCall.rankInviteRegister()
@@ -973,7 +975,7 @@ class AntStall : ModelTask() {
                 }
 
                 val userId = friend.getString("userId")
-                if (!stallInviteRegisterList.value.contains(userId)) {
+                if (stallInviteRegisterList.value?.contains(userId) != true) {
                     continue
                 }
 
@@ -1024,7 +1026,7 @@ class AntStall : ModelTask() {
                 return
             }
 
-            val friendSet = assistFriendList.value
+            val friendSet = assistFriendList.value ?: emptySet()
             if (friendSet.isEmpty()) {
                 Log.record(TAG, "未设置新村助力好友列表。")
                 return
@@ -1033,14 +1035,15 @@ class AntStall : ModelTask() {
             Log.record(TAG, "开始为 ${friendSet.size} 位好友进行新村助力...")
 
             for (uid in friendSet) {
+                val safeUid = uid ?: continue
                 val shareId = Base64.encodeToString(
-                    "$uid-${RandomUtil.getRandomInt(5)}ANUTSALTML_2PA_SHARE".toByteArray(),
+                    "$safeUid-${RandomUtil.getRandomInt(5)}ANUTSALTML_2PA_SHARE".toByteArray(),
                     Base64.NO_WRAP
                 )
 
                 val response = AntStallRpcCall.achieveBeShareP2P(shareId)
                 val json = JSONObject(response)
-                val name = UserMap.getMaskName(uid)
+                val name = UserMap.getMaskName(safeUid)
 
                 if (!json.optBoolean("success")) {
                     when (json.getString("code")) {
@@ -1256,7 +1259,7 @@ class AntStall : ModelTask() {
                 if (lossDynamic.has("specialEmojiVO")) continue
 
                 val objectId = lossDynamic.getString("objectId")
-                var isThrowManure = stallThrowManureList.value.contains(objectId)
+                var isThrowManure = stallThrowManureList.value?.contains(objectId) == true
 
                 if (stallThrowManureType.value == StallThrowManureType.DONT_THROW) {
                     isThrowManure = !isThrowManure
@@ -1313,7 +1316,7 @@ class AntStall : ModelTask() {
 
             Log.record(TAG, "开始巡逻,寻找可贴罚单的好友...")
 
-            while (true) {
+            while (!Thread.currentThread().isInterrupted) {
                 try {
                     val response = AntStallRpcCall.nextTicketFriend()
                     val json = JSONObject(response)
@@ -1338,7 +1341,7 @@ class AntStall : ModelTask() {
                         return
                     }
 
-                    var isStallTicket = stallTicketList.value.contains(friendId)
+                    var isStallTicket = stallTicketList.value?.contains(friendId) == true
                     if (stallTicketType.value == StallTicketType.DONT_TICKET) {
                         isStallTicket = !isStallTicket
                     }
@@ -1361,6 +1364,7 @@ class AntStall : ModelTask() {
                     val keys = seatsMap.keys()
 
                     while (keys.hasNext()) {
+                        if (Thread.currentThread().isInterrupted) return
                         try {
                             val key = keys.next()
                             val propertyValue = seatsMap.get(key)

@@ -84,20 +84,20 @@ class AntCooperate : ModelTask() {
      */
     override suspend fun runSuspend() {
         try {
-            Log.record(TAG, "执行开始-$name")
+            Log.record(TAG, "执行开始-${getName() ?: ""}")
 
             // 1. 真爱合种
-            if (loveCooperateWater.value) {
+            if (loveCooperateWater.value == true) {
                 loveCooperateWater()
             }
 
             // 2. 组队合种
-            if (teamCooperateWaterNum.value > 0) {
+            if ((teamCooperateWaterNum.value ?: 0) > 0) {
                 teamCooperateWater()
 
             }
             // 3. 普通合种
-            if (cooperateWater.value) {
+            if (cooperateWater.value == true) {
                 val queryUserCooperatePlantList = JSONObject(AntCooperateRpcCall.queryUserCooperatePlantList())
                 if (ResChecker.checkRes(TAG, queryUserCooperatePlantList)) {
                     // 1. 获取当前能量，设为 var，因为浇水后本地需要扣减，否则下一个合种会误判能量充足
@@ -117,12 +117,12 @@ class AntCooperate : ModelTask() {
                         val admin = plant.getString("admin")
 
                         // 2. 合种打招呼逻辑 (独立判断，不影响浇水主流程)
-                        if (cooperateSendCooperateBeckon.value && UserMap.currentUid == admin) {
+                        if (cooperateSendCooperateBeckon.value == true && UserMap.currentUid == admin) {
                             cooperateSendCooperateBeckon(cooperationId, name)
                         }
 
                         // 3. 记录合种信息到本地 Map
-                        CooperateMap.getInstance(CooperateMap::class.java).add(cooperationId, name)
+                        fansirsqi.xposed.sesame.util.maps.IdMapManager.getInstance(CooperateMap::class.java).add(cooperationId, name)
 
                         // 4. 检查是否满足“今日是否可浇水”的本地状态缓存
                         if (!Status.canCooperateWaterToday(UserMap.currentUid, cooperationId)) {
@@ -137,8 +137,8 @@ class AntCooperate : ModelTask() {
                         Log.record(TAG, "获取合种[$name] 浇水信息: 剩余可浇 $waterDayLimit g / 总限制 $waterLimit g")
 
                         // 5. 获取配置
-                        val configPerRound = cooperateWaterList.value[cooperationId] // 本轮配置浇水量
-                        val configTotalLimit = cooperateWaterTotalLimitList.value[cooperationId] // 配置的总浇水上限(累计)
+                        val configPerRound = cooperateWaterList.value?.get(cooperationId) // 本轮配置浇水量
+                        val configTotalLimit = cooperateWaterTotalLimitList.value?.get(cooperationId) // 配置的总浇水上限(累计)
 
                         if (configPerRound == null) {
                             Log.record(TAG, "浇水列表中没有为[$name]配置，跳过")
@@ -194,8 +194,8 @@ class AntCooperate : ModelTask() {
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, t)
         } finally {
-            CooperateMap.getInstance(CooperateMap::class.java).save(UserMap.currentUid)
-            Log.record(TAG, "执行结束-$name")
+            fansirsqi.xposed.sesame.util.maps.IdMapManager.getInstance(CooperateMap::class.java).save(UserMap.currentUid)
+            Log.record(TAG, "执行结束-${getName() ?: ""}")
         }
     }
 

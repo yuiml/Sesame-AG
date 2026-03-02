@@ -1,6 +1,7 @@
 package fansirsqi.xposed.sesame.util
 
 import android.content.Context
+import fansirsqi.xposed.sesame.BuildConfig
 import fansirsqi.xposed.sesame.model.BaseModel
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -18,6 +19,8 @@ object Log {
     private val errorCountMap = ConcurrentHashMap<String, AtomicInteger>()
 
     // Logger 实例
+    private val RUNTIME_LOGGER: Logger
+    private val SYSTEM_LOGGER: Logger
     private val RECORD_LOGGER: Logger
     private val DEBUG_LOGGER: Logger
     private val FOREST_LOGGER: Logger
@@ -31,6 +34,8 @@ object Log {
         Logback.initLogcatOnly()
 
         // 2. 初始化 Logger 实例 (此时它们已经有了 Logcat 能力)
+        RUNTIME_LOGGER = LoggerFactory.getLogger("runtime")
+        SYSTEM_LOGGER = LoggerFactory.getLogger("system")
         RECORD_LOGGER = LoggerFactory.getLogger("record")
         DEBUG_LOGGER = LoggerFactory.getLogger("debug")
         FOREST_LOGGER = LoggerFactory.getLogger("forest")
@@ -54,6 +59,28 @@ object Log {
     }
 
     // --- 日志方法 ---
+
+    @JvmStatic
+    fun system(msg: String) {
+        SYSTEM_LOGGER.info("$DEFAULT_TAG{}", msg)
+    }
+
+    @JvmStatic
+    fun system(tag: String, msg: String) {
+        system("[$tag]: $msg")
+    }
+
+    @JvmStatic
+    fun runtime(msg: String) {
+        if (BaseModel.runtimeLog.value == true || BuildConfig.DEBUG) {
+            RUNTIME_LOGGER.info("$DEFAULT_TAG{}", msg)
+        }
+    }
+
+    @JvmStatic
+    fun runtime(tag: String, msg: String) {
+        runtime("[$tag]: $msg")
+    }
 
 
     @JvmStatic

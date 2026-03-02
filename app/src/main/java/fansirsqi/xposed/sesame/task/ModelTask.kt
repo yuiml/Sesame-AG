@@ -14,7 +14,6 @@ import fansirsqi.xposed.sesame.util.StringUtil
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import lombok.Setter
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -109,7 +108,7 @@ abstract class ModelTask : Model() {
         // 只有蚂蚁森林启用且当前不是蚂蚁森林任务时，才拦截能量时间
         if (getName() != "蚂蚁森林") {
             val antForest = getModel(AntForest::class.java)
-            if (antForest != null && antForest.isEnable) {
+            if (antForest != null && antForest.isEnable()) {
                 if (TaskCommon.IS_ENERGY_TIME) {
                     Log.record(getName() ?: "Task", "⏸ 当前为只收能量时间【${BaseModel.energyTime.value}】，停止执行${getName()}任务！")
                     return false
@@ -130,8 +129,9 @@ abstract class ModelTask : Model() {
      * Kotlin子类应该覆盖此方法
      */
     protected open suspend fun runSuspend() {
-        // 默认调用Java兼容的run方法
-        runJava()
+        // 默认调用 Java 兼容的 run 方法
+        // 使用 runInterruptible 让取消/停止能通过线程中断尽快打断阻塞型逻辑（sleep/IO/while循环等）
+        runInterruptible(Dispatchers.IO) { runJava() }
     }
 
     /** 
@@ -246,7 +246,7 @@ abstract class ModelTask : Model() {
                     Log.record(TAG, "强制重启任务 ${getName()}")
                     stopTask()
                 }
-                if (!isEnable || check() != true) {
+                if (!isEnable() || !check()) {
                     Log.record(TAG, "任务 ${getName()} 不满足执行条件")
                     return@withLock
                 }
@@ -417,7 +417,6 @@ abstract class ModelTask : Model() {
         var onCompleted: ((isSuccess: Boolean) -> Unit)? = null,
         var useSmartScheduler: Boolean = true
     ) {
-        @Setter
         var modelTask: ModelTask? = null
         
         /** 协程任务Job */

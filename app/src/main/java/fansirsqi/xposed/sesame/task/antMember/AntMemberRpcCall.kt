@@ -1,0 +1,949 @@
+package fansirsqi.xposed.sesame.task.antMember
+
+import fansirsqi.xposed.sesame.hook.RequestManager
+import fansirsqi.xposed.sesame.util.RandomUtil
+import fansirsqi.xposed.sesame.util.TimeUtil
+import org.json.JSONArray
+import org.json.JSONException
+import org.json.JSONObject
+import java.util.UUID
+
+object AntMemberRpcCall {
+    
+    private fun getUniqueId(): String {
+        return System.currentTimeMillis().toString() + RandomUtil.nextLong()
+    }
+
+    /* ant member point */
+    @JvmStatic
+    fun queryPointCert(page: Int, pageSize: Int): String {
+        val args1 = """[{"page":$page,"pageSize":$pageSize}]"""
+        return RequestManager.requestString("alipay.antmember.biz.rpc.member.h5.queryPointCert", args1)
+    }
+
+    @JvmStatic
+    fun receivePointByUser(certId: String): String {
+        val args1 = """[{"certId":$certId}]"""
+        return RequestManager.requestString("alipay.antmember.biz.rpc.member.h5.receivePointByUser", args1)
+    }
+
+    @JvmStatic
+    @Throws(JSONException::class)
+    fun receiveAllPointByUser(): String {
+        val args = JSONObject().apply {
+            put("bizSource", "myTab")
+            val passMap = JSONObject().apply {
+                put("innerSource", "")
+                put("passInfo", JSONObject().apply {
+                    put("tc", "EXPIRING_POINT")
+                })
+                put("source", "myTab")
+                put("unid", "")
+            }
+            put("sourcePassMap", passMap)
+        }
+        val params = "[$args]"
+        return RequestManager.requestString("com.alipay.alipaymember.biz.rpc.pointcert.h5.receiveAllPointByUser", params)
+    }
+
+    @JvmStatic
+    fun queryMemberSigninCalendar(): String {
+        return RequestManager.requestString(
+            "com.alipay.amic.biz.rpc.signin.h5.queryMemberSigninCalendar",
+            """[{"autoSignIn":true,"invitorUserId":"","sceneCode":"QUERY"}]"""
+        )
+    }
+
+    /* 商家开门打卡任务 */
+    @JvmStatic
+    fun signIn(activityNo: String): String {
+        return RequestManager.requestString(
+            "alipay.merchant.kmdk.signIn",
+            """[{"activityNo":"$activityNo"}]"""
+        )
+    }
+
+    @JvmStatic
+    fun signUp(activityNo: String): String {
+        return RequestManager.requestString(
+            "alipay.merchant.kmdk.signUp",
+            """[{"activityNo":"$activityNo"}]"""
+        )
+    }
+
+    /* 商家服务 */
+    @JvmStatic
+    fun transcodeCheck(): String {
+        return RequestManager.requestString(
+            "alipay.mrchservbase.mrchbusiness.sign.transcode.check",
+            "[{}]"
+        )
+    }
+
+    @JvmStatic
+    fun merchantSign(): String {
+        return RequestManager.requestString(
+            "alipay.mrchservbase.mrchpoint.sqyj.homepage.signin.v1",
+            "[{}]"
+        )
+    }
+
+    @JvmStatic
+    fun zcjSignInQuery(): String {
+        return RequestManager.requestString(
+            "alipay.mrchservbase.zcj.view.invoke",
+            """[{"compId":"ZCJ_SIGN_IN_QUERY"}]"""
+        )
+    }
+
+    @JvmStatic
+    fun zcjSignInExecute(): String {
+        return RequestManager.requestString(
+            "alipay.mrchservbase.zcj.view.invoke",
+            """[{"compId":"ZCJ_SIGN_IN_EXECUTE"}]"""
+        )
+    }
+
+    @JvmStatic
+    fun taskListQuery(): String {
+        return RequestManager.requestString(
+            "alipay.mrchservbase.task.more.query",
+            """[{"paramMap":{"platform":"Android"},"taskItemCode":""}]"""
+        )
+    }
+
+    @JvmStatic
+    fun queryActivity(): String {
+        return RequestManager.requestString(
+            "alipay.merchant.kmdk.query.activity",
+            """[{"scene":"activityCenter"}]"""
+        )
+    }
+
+    /* 商家服务任务 */
+    @JvmStatic
+    fun taskFinish(bizId: String): String {
+        return RequestManager.requestString(
+            "com.alipay.adtask.biz.mobilegw.service.task.finish",
+            """[{"bizId":"$bizId"}]"""
+        )
+    }
+
+    @JvmStatic
+    fun taskReceive(taskCode: String): String {
+        return RequestManager.requestString(
+            "alipay.mrchservbase.sqyj.task.receive",
+            """[{"compId":"ZTS_TASK_RECEIVE","extInfo":{"taskCode":"$taskCode"}}]"""
+        )
+    }
+
+    @JvmStatic
+    fun actioncode(actionCode: String): String {
+        return RequestManager.requestString(
+            "alipay.mrchservbase.task.query.by.actioncode",
+            """[{"actionCode":"$actionCode"}]"""
+        )
+    }
+
+    @JvmStatic
+    fun produce(actionCode: String): String {
+        return RequestManager.requestString(
+            "alipay.mrchservbase.biz.task.action.produce",
+            """[{"actionCode":"$actionCode"}]"""
+        )
+    }
+
+    @JvmStatic
+    fun ballReceive(ballIds: String): String {
+        return RequestManager.requestString(
+            "alipay.mrchservbase.mrchpoint.ball.receive",
+            """[{"ballIds":["$ballIds"],"channel":"MRCH_SELF","outBizNo":"${getUniqueId()}"}]"""
+        )
+    }
+
+    /* 会员任务 */
+    @JvmStatic
+    fun signPageTaskList(): String {
+        return RequestManager.requestString(
+            "alipay.antmember.biz.rpc.membertask.h5.signPageTaskList",
+            """[{"sourceBusiness":"antmember","spaceCode":"ant_member_xlight_task"}]"""
+        )
+    }
+
+    @JvmStatic
+    fun applyTask(darwinName: String, taskConfigId: Long): String {
+        return RequestManager.requestString(
+            "alipay.antmember.biz.rpc.membertask.h5.applyTask",
+            """[{"darwinExpParams":{"darwinName":"$darwinName"},"sourcePassMap":{"innerSource":"","source":"myTab","unid":""},"taskConfigId":$taskConfigId}]"""
+        )
+    }
+
+    @JvmStatic
+    fun executeTask(bizParam: String, bizSubType: String, bizType: String, taskConfigId: Long): String {
+        val bizOutNo = TimeUtil.getFormatDate().replace("-", "")
+        return RequestManager.requestString(
+            "alipay.antmember.biz.rpc.membertask.h5.executeTask",
+            """[{"bizOutNo":"$bizOutNo","bizParam":"$bizParam","bizSubType":"$bizSubType","bizType":"$bizType","sourcePassMap":{"innerSource":"","source":"myTab","unid":""},"syncProcess":true,"taskConfigId":"$taskConfigId"}]"""
+        )
+    }
+
+    @JvmStatic
+    fun queryAllStatusTaskList(): String {
+        return RequestManager.requestString(
+            "alipay.antmember.biz.rpc.membertask.h5.queryAllStatusTaskList",
+            """[{"sourceBusiness":"signInAd","sourcePassMap":{"innerSource":"","source":"myTab","unid":""}}]"""
+        )
+    }
+
+    @JvmStatic
+    fun rpcCall_signIn(): String {
+        val args1 = """[{"sceneCode":"KOUBEI_INTEGRAL","source":"ALIPAY_TAB","version":"2.0"}]"""
+        return RequestManager.requestString("alipay.kbmemberprod.action.signIn", args1)
+    }
+
+    /**
+     * 黄金票收取
+     *
+     * @param str signInfo
+     * @return 结果
+     */
+    @JvmStatic
+    fun goldBillCollect(str: String): String {
+        return RequestManager.requestString(
+            "com.alipay.wealthgoldtwa.goldbill.v2.index.collect",
+            """[{$str"trigger":"Y"}]"""
+        )
+    }
+
+    /**
+     * 游戏中心签到查询
+     */
+    @JvmStatic
+    fun querySignInBall(): String {
+        return RequestManager.requestString(
+            "com.alipay.gamecenteruprod.biz.rpc.v3.querySignInBall",
+            """[{"source":"ch_appcenter__chsub_9patch"}]"""
+        )
+    }
+
+    /**
+     * 游戏中心签到
+     */
+    @JvmStatic
+    fun continueSignIn(): String {
+        return RequestManager.requestString(
+            "com.alipay.gamecenteruprod.biz.rpc.continueSignIn",
+            """[{"sceneId":"GAME_CENTER","signType":"NORMAL_SIGN","source":"ch_appcenter__chsub_9patch"}]"""
+        )
+    }
+
+    /**
+     * 游戏中心任务列表
+     */
+    @JvmStatic
+    fun queryGameCenterTaskList(): String {
+        return RequestManager.requestString(
+            "com.alipay.gamecenteruprod.biz.rpc.v4.queryTaskList",
+            """[{"source":"ch_appcenter__chsub_9patch"}]"""
+        )
+    }
+
+    /**
+     * 游戏中心普通平台任务完成（如貔貅任务）
+     */
+    @JvmStatic
+    fun doTaskSend(taskId: String): String {
+        return RequestManager.requestString(
+            "com.alipay.gamecenteruprod.biz.rpc.v3.doTaskSend",
+            """[{"taskId":"$taskId"}]"""
+        )
+    }
+
+    /**
+     * 游戏中心签到类平台任务完成（needSignUp = true）
+     */
+    @JvmStatic
+    fun doTaskSignup(taskId: String): String {
+        return RequestManager.requestString(
+            "com.alipay.gamecenteruprod.biz.rpc.v3.doTaskSignup",
+            """[{"source":"ch_appcenter__chsub_9patch","taskId":"$taskId"}]"""
+        )
+    }
+
+    /**
+     * 游戏中心查询待领取乐豆列表
+     */
+    @JvmStatic
+    fun queryPointBallList(): String {
+        return RequestManager.requestString(
+            "com.alipay.gamecenteruprod.biz.rpc.v3.queryPointBallList",
+            """[{"source":"ch_appcenter__chsub_9patch"}]"""
+        )
+    }
+
+    /**
+     * 游戏中心全部领取
+     */
+    @JvmStatic
+    fun batchReceivePointBall(): String {
+        return RequestManager.requestString(
+            "com.alipay.gamecenteruprod.biz.rpc.v3.batchReceivePointBall",
+            "[{}]"
+        )
+    }
+
+    /**
+     * 芝麻信用首页
+     */
+    @JvmStatic
+    fun queryHome(): String {
+        return RequestManager.requestString(
+            "com.antgroup.zmxy.zmcustprod.biz.rpc.home.api.HomeV7RpcManager.queryHome",
+            """[{"invokeSource":"zmHome","miniZmGrayInside":"","version":"week"}]"""
+        )
+    }
+
+    /**
+     * 获取芝麻信用任务列表
+     */
+    @JvmStatic
+    fun queryAvailableSesameTask(): String {
+        return RequestManager.requestString(
+            "com.antgroup.zmxy.zmmemberop.biz.rpc.creditaccumulate.CreditAccumulateStrategyRpcManager.queryListV3",
+            "[{}]"
+        )
+    }
+
+    /**
+     * 芝麻信用领取任务
+     */
+    @JvmStatic
+    fun joinSesameTask(taskTemplateId: String): String {
+        return RequestManager.requestString(
+            "com.antgroup.zmxy.zmmemberop.biz.rpc.promise.PromiseRpcManager.joinActivity",
+            """[{"chInfo":"seasameList","joinFromOuter":false,"templateId":"$taskTemplateId"}]"""
+        )
+    }
+
+    /**
+     * 芝麻信用获取任务回调
+     */
+    @JvmStatic
+    fun feedBackSesameTask(taskTemplateId: String): String {
+        return RequestManager.requestString(
+            "com.antgroup.zmxy.zmmemberop.biz.rpc.creditaccumulate.CreditAccumulateStrategyRpcManager.taskFeedback",
+            """[{"actionType":"TO_COMPLETE","templateId":"$taskTemplateId"}]""",
+            "zmmemberop", "taskFeedback", "CreditAccumulateStrategyRpcManager"
+        )
+    }
+
+    /**
+     * 芝麻信用完成任务
+     */
+    @JvmStatic
+    fun finishSesameTask(recordId: String): String {
+        return RequestManager.requestString(
+            "com.antgroup.zmxy.zmmemberop.biz.rpc.promise.PromiseRpcManager.pushActivity",
+            """[{"recordId":"$recordId"}]"""
+        )
+    }
+
+    /**
+     * 查询可收取的芝麻粒
+     */
+    @JvmStatic
+    fun queryCreditFeedback(): String {
+        return RequestManager.requestString(
+            "com.antgroup.zmxy.zmcustprod.biz.rpc.home.creditaccumulate.api.CreditAccumulateRpcManager.queryCreditFeedback",
+            """[{"queryPotential":false,"size":20,"status":"UNCLAIMED"}]"""
+        )
+    }
+
+    /**
+     * 一键收取芝麻粒
+     */
+    @JvmStatic
+    fun collectAllCreditFeedback(): String {
+        return RequestManager.requestString(
+            "com.antgroup.zmxy.zmcustprod.biz.rpc.home.creditaccumulate.api.CreditAccumulateRpcManager.collectCreditFeedback",
+            """[{"collectAll":true,"status":"UNCLAIMED"}]"""
+        )
+    }
+
+    /**
+     * 收取芝麻粒
+     *
+     * @param creditFeedbackId creditFeedbackId
+     */
+    @JvmStatic
+    fun collectCreditFeedback(creditFeedbackId: String): String {
+        return RequestManager.requestString(
+            "com.antgroup.zmxy.zmcustprod.biz.rpc.home.creditaccumulate.api.CreditAccumulateRpcManager.collectCreditFeedback",
+            """[{"collectAll":false,"creditFeedbackId":"$creditFeedbackId","status":"UNCLAIMED"}]"""
+        )
+    }
+
+    /**
+     * 获取保障金信息
+     */
+    @JvmStatic
+    fun queryInsuredHome(): String {
+        return RequestManager.requestString(
+            "com.alipay.insplatformbff.insgift.accountService.queryAccountForPlat",
+            """[{"includePolicy":true,"specialChannel":"wealth_entry"}]"""
+        )
+    }
+
+    /**
+     * 获取所有可领取的保障金
+     */
+    @JvmStatic
+    fun queryAvailableCollectInsuredGold(): String {
+        return RequestManager.requestString(
+            "com.alipay.insgiftbff.insgiftMain.queryMultiSceneWaitToGainList",
+            """[{"entrance":"wealth_entry","eventToWaitParamDTO":{"giftProdCode":"GIFT_UNIVERSAL_COVERAGE","rightNoList":["UNIVERSAL_ACCIDENT","UNIVERSAL_HOSPITAL","UNIVERSAL_OUTPATIENT","UNIVERSAL_SERIOUSNESS","UNIVERSAL_WEALTH","UNIVERSAL_TRANS","UNIVERSAL_FRAUD_LIABILITY"]},"helpChildParamDTO":{"giftProdCode":"GIFT_HEALTH_GOLD_CHILD","rightNoList":["UNIVERSAL_ACCIDENT","UNIVERSAL_HOSPITAL","UNIVERSAL_OUTPATIENT","UNIVERSAL_SERIOUSNESS","UNIVERSAL_WEALTH","UNIVERSAL_TRANS","UNIVERSAL_FRAUD_LIABILITY"]},"priorityChannelParamDTO":{"giftProdCode":"GIFT_UNIVERSAL_COVERAGE","rightNoList":["UNIVERSAL_ACCIDENT","UNIVERSAL_HOSPITAL","UNIVERSAL_OUTPATIENT","UNIVERSAL_SERIOUSNESS","UNIVERSAL_WEALTH","UNIVERSAL_TRANS","UNIVERSAL_FRAUD_LIABILITY"]},"signInParamDTO":{"giftProdCode":"GIFT_UNIVERSAL_COVERAGE","rightNoList":["UNIVERSAL_ACCIDENT","UNIVERSAL_HOSPITAL","UNIVERSAL_OUTPATIENT","UNIVERSAL_SERIOUSNESS","UNIVERSAL_WEALTH","UNIVERSAL_TRANS","UNIVERSAL_FRAUD_LIABILITY"]}}]""",
+            "insgiftbff", "queryMultiSceneWaitToGainList", "insgiftMain"
+        )
+    }
+
+    /**
+     * 领取保障金
+     */
+    @JvmStatic
+    fun collectInsuredGold(goldBallObj: JSONObject): String {
+        return RequestManager.requestString(
+            "com.alipay.insgiftbff.insgiftMain.gainMyAndFamilySumInsured",
+            goldBallObj.toString(), "insgiftbff", "gainMyAndFamilySumInsured", "insgiftMain"
+        )
+    }
+
+    /**
+     * 查询生活记录
+     *
+     * @return 结果
+     */
+    @JvmStatic
+    fun promiseQueryHome(): String {
+        return RequestManager.requestString(
+            "com.antgroup.zmxy.zmmemberop.biz.rpc.promise.PromiseRpcManager.queryHome",
+            null
+        )
+    }
+
+    /**
+     * 查询生活记录明细
+     *
+     * @param recordId recordId
+     * @return 结果
+     */
+    @JvmStatic
+    fun promiseQueryDetail(recordId: String): String {
+        return RequestManager.requestString(
+            "com.antgroup.zmxy.zmmemberop.biz.rpc.promise.PromiseRpcManager.queryDetail",
+            """[{"recordId":"$recordId"}]"""
+        )
+    }
+
+    /**
+     * 生活记录加入新纪录
+     *
+     * @param data data
+     * @return 结果
+     */
+    @JvmStatic
+    fun promiseJoin(data: String): String {
+        return RequestManager.requestString(
+            "com.antgroup.zmxy.zmmemberop.biz.rpc.promise.PromiseRpcManager.join",
+            "[$data]"
+        )
+    }
+
+    /**
+     * 查询待领取的保障金
+     *
+     * @return 结果
+     */
+    @JvmStatic
+    fun queryMultiSceneWaitToGainList(): String {
+        return RequestManager.requestString(
+            "com.alipay.insgiftbff.insgiftMain.queryMultiSceneWaitToGainList",
+            """[{"entrance":"jkj_zhima_dairy66","eventToWaitParamDTO":{"giftProdCode":"GIFT_UNIVERSAL_COVERAGE","rightNoList":["UNIVERSAL_ACCIDENT","UNIVERSAL_HOSPITAL","UNIVERSAL_OUTPATIENT","UNIVERSAL_SERIOUSNESS","UNIVERSAL_WEALTH","UNIVERSAL_TRANS","UNIVERSAL_FRAUD_LIABILITY"]},"helpChildParamDTO":{"giftProdCode":"GIFT_HEALTH_GOLD_CHILD","rightNoList":["UNIVERSAL_ACCIDENT","UNIVERSAL_HOSPITAL","UNIVERSAL_OUTPATIENT","UNIVERSAL_SERIOUSNESS","UNIVERSAL_WEALTH","UNIVERSAL_TRANS","UNIVERSAL_FRAUD_LIABILITY"]},"priorityChannelParamDTO":{"giftProdCode":"GIFT_UNIVERSAL_COVERAGE","rightNoList":["UNIVERSAL_ACCIDENT","UNIVERSAL_HOSPITAL","UNIVERSAL_OUTPATIENT","UNIVERSAL_SERIOUSNESS","UNIVERSAL_WEALTH","UNIVERSAL_TRANS","UNIVERSAL_FRAUD_LIABILITY"]},"signInParamDTO":{"giftProdCode":"GIFT_UNIVERSAL_COVERAGE","rightNoList":["UNIVERSAL_ACCIDENT","UNIVERSAL_HOSPITAL","UNIVERSAL_OUTPATIENT","UNIVERSAL_SERIOUSNESS","UNIVERSAL_WEALTH","UNIVERSAL_TRANS","UNIVERSAL_FRAUD_LIABILITY"]}}]"""
+        )
+    }
+
+    /**
+     * 领取保障金
+     *
+     * @param jsonObject jsonObject
+     * @return 结果
+     */
+    @JvmStatic
+    @Throws(JSONException::class)
+    fun gainMyAndFamilySumInsured(jsonObject: JSONObject): String {
+        jsonObject.apply {
+            put("disabled", false)
+            put("entrance", "jkj_zhima_dairy66")
+        }
+        return RequestManager.requestString(
+            "com.alipay.insgiftbff.insgiftMain.gainMyAndFamilySumInsured",
+            "[$jsonObject]"
+        )
+    }
+
+    // 安心豆
+    @JvmStatic
+    fun querySignInProcess(appletId: String, scene: String): String {
+        return RequestManager.requestString(
+            "com.alipay.insmarketingbff.bean.querySignInProcess",
+            """[{"appletId":"$appletId","scene":"$scene"}]"""
+        )
+    }
+
+    @JvmStatic
+    fun signInTrigger(appletId: String, scene: String): String {
+        return RequestManager.requestString(
+            "com.alipay.insmarketingbff.bean.signInTrigger",
+            """[{"appletId":"$appletId","scene":"$scene"}]"""
+        )
+    }
+
+    @JvmStatic
+    fun beanExchangeDetail(itemId: String): String {
+        return RequestManager.requestString(
+            "com.alipay.insmarketingbff.onestop.planTrigger",
+            """[{"extParams":{"itemId":"$itemId"},"planCode":"bluebean_onestop","planOperateCode":"exchangeDetail"}]"""
+        )
+    }
+
+    @JvmStatic
+    fun beanExchange(itemId: String, pointAmount: Int): String {
+        return RequestManager.requestString(
+            "com.alipay.insmarketingbff.onestop.planTrigger",
+            """[{"extParams":{"itemId":"$itemId","pointAmount":"$pointAmount"},"planCode":"bluebean_onestop","planOperateCode":"exchange"}]"""
+        )
+    }
+
+    @JvmStatic
+    fun queryUserAccountInfo(pointProdCode: String): String {
+        return RequestManager.requestString(
+            "com.alipay.insmarketingbff.point.queryUserAccountInfo",
+            """[{"channel":"HiChat","pointProdCode":"$pointProdCode","pointUnitType":"COUNT"}]"""
+        )
+    }
+
+    /**
+     * 查询会员信息
+     */
+    @JvmStatic
+    fun queryMemberInfo(): String {
+        val data = """[{"needExpirePoint":true,"needGrade":true,"needPoint":true,"queryScene":"POINT_EXCHANGE_SCENE","source":"POINT_EXCHANGE_SCENE","sourcePassMap":{"innerSource":"","source":"","unid":""}}]"""
+        return RequestManager.requestString("com.alipay.alipaymember.biz.rpc.member.h5.queryMemberInfo", data)
+    }
+
+    /**
+     * 查询0元兑公益道具列表
+     *
+     * @param userId       userId
+     * @param pointBalance 当前可用会员积分
+     */
+    @JvmStatic
+    fun queryShandieEntityList(userId: String, pointBalance: String): String {
+        val uniqueId = "${System.currentTimeMillis()}${userId}94000SR202501061144200394000SR2025010611458003"
+        val data = """[{"blackIds":[],"deliveryIdList":["94000SR2025010611442003","94000SR2025010611458003"],"filterCityCode":false,"filterPointNoEnough":false,"filterStockNoEnough":false,"pageNum":1,"pageSize":18,"point":$pointBalance,"previewCopyDbId":"","queryType":"DELIVERY_ID_LIST","source":"member_day","sourcePassMap":{"innerSource":"","source":"0yuandui","unid":""},"topIds":[],"uniqueId":"$uniqueId"}]"""
+        return RequestManager.requestString("com.alipay.alipaymember.biz.rpc.config.h5.queryShandieEntityList", data)
+    }
+
+    /**
+     * 会员积分兑换道具
+     *
+     * @param benefitId benefitId
+     * @param itemId    itemId
+     * @return 结果
+     */
+    @JvmStatic
+    fun exchangeBenefit(benefitId: String, itemId: String): String {
+        val requestId = "requestId${System.currentTimeMillis()}"
+        val alipayClientVersion = fansirsqi.xposed.sesame.hook.ApplicationHook.alipayVersion.versionString
+        val data = """[{"benefitId":"$benefitId","cityCode":"","exchangeType":"POINT_PAY","itemId":"$itemId","miniAppId":"","orderSource":"","requestId":"$requestId","requestSourceInfo":"","sourcePassMap":{"alipayClientVersion":"$alipayClientVersion","innerSource":"","mobileOsType":"Android","source":"","unid":""},"userOutAccount":""}]"""
+        return RequestManager.requestString("com.alipay.alipaymember.biz.rpc.exchange.h5.exchangeBenefit", data)
+    }
+
+    @JvmStatic
+    fun exchangeBenefit(benefitId: String, itemId: String, userId: String?): String {
+        val now = System.currentTimeMillis()
+        val requestId = "requestId$now"
+        val unid = UUID.randomUUID().toString()
+        val uniqueId = userId.orEmpty() + now
+        val requestSourceInfo = "SID:$uniqueId|0"
+
+        val alipayClientVersion = fansirsqi.xposed.sesame.hook.ApplicationHook.alipayVersion.versionString
+        val data =
+            """[{"benefitId":"$benefitId","cityCode":"","exchangeType":"POINT_PAY","itemId":"$itemId","miniAppId":"","orderSource":"","requestId":"$requestId","requestSourceInfo":"$requestSourceInfo","sourcePassMap":{"alipayClientVersion":"$alipayClientVersion","bid":"","feedsIndex":"0","innerSource":"a159.b52659","isCpc":"","mobileOsType":"Android","source":"","unid":"$unid","uniqueId":"$uniqueId"},"userOutAccount":""}]"""
+        return RequestManager.requestString("com.alipay.alipaymember.biz.rpc.exchange.h5.exchangeBenefit", data)
+    }
+
+    @JvmStatic
+    fun queryDeliveryZoneDetail(deliveryIdList: List<String>, pageNum: Int, pageSize: Int): String {
+        if (deliveryIdList.isEmpty()) return ""
+
+        val idsJoined = deliveryIdList.joinToString(",")
+        val uniqueId = "17665547901390and99999999INTELLIGENT_SORT92524974$idsJoined"
+        val deliveryIdListJson = deliveryIdList.joinToString(prefix = "[", postfix = "]") { "\"$it\"" }
+
+        val data =
+            """[{"deliveryIdList":$deliveryIdListJson,"lowerPoint":0,"pageNum":$pageNum,"pageSize":$pageSize,"queryNoReserve":true,"resourceCardChannel":"ZERO_EXCHANGE_CHANNEL","sourcePassMap":{"innerSource":"","source":"","unid":""},"startPageFirstQuery":false,"topIdList":["202412231259661040"],"uniqueId":"$uniqueId","upperPoint":99999999,"withPointRange":false}]"""
+        return RequestManager.requestString("com.alipay.alipaymember.biz.rpc.config.h5.queryDeliveryZoneDetail", data)
+    }
+
+    @JvmStatic
+    fun queryExchangeList(page: Int, pageSize: Int): String {
+        val args =
+            """[{"currentPage":$page,"formDelivery":"false","pageSize":$pageSize,"privilegeSource":"","privilegeTab":"","tabList":[]}]"""
+        return RequestManager.requestString(
+            "com.antgroup.zmxy.zmmemberop.biz.rpc.award.AwardRpcManager.queryListV2",
+            args
+        )
+    }
+
+    @JvmStatic
+    fun obtainAward(templateId: String): String {
+        val args = """[{"awardTemplateId":"$templateId"}]"""
+        return RequestManager.requestString(
+            "com.antgroup.zmxy.zmmemberop.biz.rpc.award.AwardRpcManager.obtainAward",
+            args
+        )
+    }
+
+    private const val ZHIMATREE_PLAY_INFO = "SwbtxJSo8OOUrymAU%2FHnY2jyFRc%2BkCJ3"
+    private const val ZHIMATREE_REFER =
+        "https://render.alipay.com/p/yuyan/180020010001269849/zmTree.html?caprMode=sync&chInfo=chInfo=ch_zmzltf__chsub_xinyongsyyingxiaowei"
+
+    @JvmStatic
+    fun zhimaTreeHomePage(): String? {
+        return try {
+            val args = JSONObject().apply {
+                put("operation", "ZHIMA_TREE_HOME_PAGE")
+                put("playInfo", ZHIMATREE_PLAY_INFO)
+                put("refer", ZHIMATREE_REFER)
+                put("extInfo", JSONObject())
+            }
+            RequestManager.requestString(
+                "alipay.promoprod.play.trigger",
+                JSONArray().put(args).toString()
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    @JvmStatic
+    fun zhimaTreeCleanAndPush(treeCode: String): String? {
+        return try {
+            val extInfo = JSONObject().apply {
+                put("clickNum", "1")
+                put("treeCode", treeCode)
+            }
+            val args = JSONObject().apply {
+                put("operation", "ZHIMA_TREE_CLEAN_AND_PUSH")
+                put("playInfo", ZHIMATREE_PLAY_INFO)
+                put("refer", ZHIMATREE_REFER)
+                put("extInfo", extInfo)
+            }
+            RequestManager.requestString(
+                "alipay.promoprod.play.trigger",
+                JSONArray().put(args).toString()
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    @JvmStatic
+    fun queryRentGreenTaskList(): String? {
+        return try {
+            val extInfo = JSONObject().apply {
+                put("chInfo", "ch_share__chsub_ALPContact")
+                put("batchId", "")
+            }
+            val args = JSONObject().apply {
+                put("operation", "RENT_GREEN_TASK_LIST_QUERY")
+                put("playInfo", ZHIMATREE_PLAY_INFO)
+                put("refer", ZHIMATREE_REFER)
+                put("extInfo", extInfo)
+            }
+            RequestManager.requestString(
+                "alipay.promoprod.play.trigger",
+                JSONArray().put(args).toString()
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    @JvmStatic
+    fun rentGreenTaskFinish(taskId: String, stageCode: String): String? {
+        return try {
+            val extInfo = JSONObject().apply {
+                put("chInfo", "ch_share__chsub_ALPContact")
+                put("taskId", taskId)
+                put("stageCode", stageCode)
+            }
+            val args = JSONObject().apply {
+                put("operation", "RENT_GREEN_TASK_FINISH")
+                put("playInfo", ZHIMATREE_PLAY_INFO)
+                put("refer", ZHIMATREE_REFER)
+                put("extInfo", extInfo)
+            }
+            RequestManager.requestString(
+                "alipay.promoprod.play.trigger",
+                JSONArray().put(args).toString()
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    @JvmStatic
+    fun queryWelfareHome(): String? {
+        return try {
+            val args = JSONObject().apply {
+                put("isResume", true)
+            }
+            RequestManager.requestString(
+                "com.alipay.finaggexpbff.needle.welfareCenter.index",
+                JSONArray().put(args).toString()
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    @JvmStatic
+    fun welfareCenterTrigger(type: String): String {
+        return try {
+            val args = JSONObject().apply {
+                put("type", type)
+            }
+            RequestManager.requestString(
+                "com.alipay.finaggexpbff.needle.welfareCenter.trigger",
+                JSONArray().put(args).toString()
+            )
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    @JvmStatic
+    fun queryConsumeHome(): String? {
+        return try {
+            val args = JSONObject().apply {
+                put("tabBubbleDeliverParam", JSONObject())
+                put("tabTypeDeliverParam", JSONObject())
+            }
+            RequestManager.requestString(
+                "com.alipay.wealthgoldtwa.needle.consume.query",
+                JSONArray().put(args).toString()
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    @JvmStatic
+    fun submitConsume(amount: Int, productId: String, bonusAmount: Int): String? {
+        return try {
+            val args = JSONObject().apply {
+                put("exchangeAmount", amount)
+                put("exchangeMoney", String.format("%.2f", amount / 1000.0))
+                put("prizeType", "GOLD")
+                put("productId", productId)
+                put("bonusAmount", bonusAmount)
+            }
+            RequestManager.requestString(
+                "com.alipay.wealthgoldtwa.needle.consume.submit",
+                JSONArray().put(args).toString()
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    @JvmStatic
+    fun queryStickerCanReceive(year: String, month: String): String {
+        val data =
+            """[{"isFirstShow":"false","month":"$month","scene":"","year":"$year"}]"""
+        return RequestManager.requestString("alipay.memberasset.sticker.queryStickerCanReceive", data)
+    }
+
+    @JvmStatic
+    fun receiveSticker(year: String, month: String, stickerIds: List<String>): String {
+        if (stickerIds.isEmpty()) return ""
+        val stickerIdsJson = stickerIds.joinToString(prefix = "[", postfix = "]") { "\"$it\"" }
+        val data = """[{"month":"$month","stickerIds":$stickerIdsJson,"year":"$year"}]"""
+        return RequestManager.requestString("alipay.memberasset.sticker.receiveSticker", data)
+    }
+
+    @JvmStatic
+    fun zmCheckInCompleteTask(checkInDate: String, sceneCode: String): String {
+        val args = """[{"checkInDate":"$checkInDate","sceneCode":"$sceneCode"}]"""
+        return RequestManager.requestString(
+            "com.antgroup.zmxy.zmmemberop.biz.rpc.pointtask.CheckInTaskRpcManager.completeTask",
+            args
+        )
+    }
+
+    /**
+     * 兼容旧实现：将芝麻信用相关 RPC 归类到 Zmxy 命名空间下，供 AntMember 调用。
+     *
+     * 说明：这些方法来自历史实现（Sesame-GR），在 AG Kotlin 迁移过程中被引用但未补齐。
+     * 这里按最小集补齐，确保编译通过与功能可用。
+     */
+    object Zmxy {
+
+        /**
+         * 查询“成长引导/信誉任务”待办列表
+         */
+        @JvmStatic
+        fun queryGrowthGuideToDoList(guideBehaviorId: String, invokeVersion: String): String {
+            val requestData =
+                """[{"guideBehaviorId":"$guideBehaviorId","invokeVersion":"$invokeVersion","switchNewPage":true}]"""
+            return RequestManager.requestString(
+                "com.antgroup.zmxy.zmcustprod.biz.rpc.growthbehavior.apiGrowthBehaviorRpcManager.queryToDoList",
+                requestData
+            )
+        }
+
+        /**
+         * 接受/开启一个行为任务
+         */
+        @JvmStatic
+        fun openBehaviorCollect(behaviorId: String): String {
+            val requestData = """[{"behaviorId":"$behaviorId"}]"""
+            return RequestManager.requestString(
+                "com.antgroup.zmxy.zmcustprod.biz.rpc.growthbehavior.apiGrowthBehaviorRpcManager.openBehaviorCollect",
+                requestData
+            )
+        }
+
+        /**
+         * 查询每日问答题目
+         */
+        @JvmStatic
+        fun queryDailyQuiz(behaviorId: String): String {
+            val requestData = """[{"behaviorId":"$behaviorId"}]"""
+            return RequestManager.requestString(
+                "com.antgroup.zmxy.zmcustprod.biz.rpc.growthtask.api.GrowthTaskRpcManager.queryDailyQuiz",
+                requestData
+            )
+        }
+
+        /**
+         * 提交每日问答/视频问答答案
+         */
+        @JvmStatic
+        fun pushDailyTask(
+            behaviorId: String,
+            bizDate: Long,
+            answerId: String,
+            questionId: String,
+            answerStatus: String
+        ): String {
+            val extInfo =
+                """{"answerId":"$answerId","answerStatus":"$answerStatus","questionId":"$questionId"}"""
+            val requestData = """[{"behaviorId":"$behaviorId","bizDate":$bizDate,"extInfo":$extInfo}]"""
+            return RequestManager.requestString(
+                "com.antgroup.zmxy.zmcustprod.biz.rpc.growthtask.api.GrowthTaskRpcManager.pushDailyTask",
+                requestData
+            )
+        }
+
+        /**
+         * 查询当前可领取的进度球
+         */
+        @JvmStatic
+        fun queryScoreProgress(): String {
+            val requestData = """[{"needTotalProcess":"TRUE","queryGuideInfo":true,"switchNewPage":true}]"""
+            return RequestManager.requestString(
+                "com.antgroup.zmxy.zmcustprod.biz.rpc.home.api.HomeV8RpcManager.queryScoreProgress",
+                requestData
+            )
+        }
+
+        /**
+         * 收集一个或多个进度球
+         */
+        @JvmStatic
+        fun collectProgressBall(ballIdList: JSONArray?): String? {
+            if (ballIdList == null || ballIdList.length() == 0) return null
+            val requestData = """[{"ballIdList":${ballIdList}}]"""
+            return RequestManager.requestString(
+                "com.antgroup.zmxy.zmcustprod.biz.rpc.growthbehavior.apiGrowthBehaviorRpcManager.collectProgressBall",
+                requestData
+            )
+        }
+
+        object Alchemy {
+            private const val CHECK_IN_VERSION = "2025-10-22"
+
+            @JvmStatic
+            fun alchemyQueryCheckIn(sceneCode: String): String {
+                val requestData = """[{"sceneCode":"$sceneCode","version":"$CHECK_IN_VERSION"}]"""
+                return RequestManager.requestString(
+                    "com.antgroup.zmxy.zmmemberop.biz.rpc.pointtask.CheckInTaskRpcManager.queryTaskLists",
+                    requestData
+                )
+            }
+
+            @JvmStatic
+            fun claimAward(): String {
+                return RequestManager.requestString(
+                    "com.antgroup.zmxy.zmmemberop.biz.rpc.AlchemyRpcManager.claimAward",
+                    "[{}]"
+                )
+            }
+
+            @JvmStatic
+            fun alchemyQueryHome(): String {
+                return RequestManager.requestString(
+                    "com.antgroup.zmxy.zmmemberop.biz.rpc.AlchemyRpcManager.queryHome",
+                    "[{}]"
+                )
+            }
+
+            @JvmStatic
+            fun alchemyExecute(): String {
+                return RequestManager.requestString(
+                    "com.antgroup.zmxy.zmmemberop.biz.rpc.AlchemyRpcManager.alchemy",
+                    "[null]"
+                )
+            }
+
+            @JvmStatic
+            fun alchemyQueryTimeLimitedTask(): String {
+                return RequestManager.requestString(
+                    "com.antgroup.zmxy.zmmemberop.biz.rpc.pointtask.TimeLimitedTaskRpcManager.queryTask",
+                    "[{}]"
+                )
+            }
+
+            @JvmStatic
+            fun alchemyCompleteTimeLimitedTask(templateId: String): String {
+                val requestData = """[{"templateId":"$templateId"}]"""
+                return RequestManager.requestString(
+                    "com.antgroup.zmxy.zmmemberop.biz.rpc.pointtask.TimeLimitedTaskRpcManager.completeTask",
+                    requestData
+                )
+            }
+
+            @JvmStatic
+            fun alchemyQueryListV3(): String {
+                val requestData =
+                    """[{"chInfo":"","deliverStatus":"","deliveryTemplateId":"","searchSubscribeTask":true,"version":"alchemy"}]"""
+                return RequestManager.requestString(
+                    "com.antgroup.zmxy.zmmemberop.biz.rpc.creditaccumulate.CreditAccumulateStrategyRpcManager.queryListV3",
+                    requestData
+                )
+            }
+        }
+    }
+}

@@ -201,12 +201,12 @@ object UserMap {
     @JvmStatic
     @Synchronized
     fun saveSelf(userEntity: UserEntity?) {
-        if (userEntity != null) {
-            // 2. 直接存入对象！DataStore 会自动转 JSON 并写入文件
-            DataStore.put("activedUser", userEntity)
-            Log.record(TAG, "update now active user: $userEntity")
-        }
-        val body = JsonUtil.formatJson(userEntity)
-        Files.write2File(body, Files.getSelfIdFile(userEntity?.userId)!!)
+        val entity = userEntity ?: return
+        // 2. 直接存入对象！DataStore 会自动转 JSON 并写入文件
+        DataStore.put("activedUser", entity)
+        Log.record(TAG, "update now active user: $entity")
+
+        val body = JsonUtil.formatJson(entity)
+        Files.write2File(body, Files.getSelfIdFile(entity.userId)!!)
     }
 }

@@ -41,7 +41,7 @@ object CustomSettings {
     val onlyOnceDailyList = SelectModelField(
         "onlyOnceDailyList",
         "每日只运行一次 | 模块选择",
-        LinkedHashSet<String>().apply {
+        LinkedHashSet<String?>().apply {
             add("antOrchard")
             add("antCooperate")
             add("antSports")
@@ -98,7 +98,7 @@ object CustomSettings {
         onlyOnceDaily.setObjectValue(false)
         autoHandleOnceDaily.setObjectValue(false)
         autoHandleOnceDailyTimes.setObjectValue(ListUtil.newArrayList("0600", "2000"))
-        val defaultSet = LinkedHashSet<String>().apply {
+        val defaultSet = LinkedHashSet<String?>().apply {
             add("antOrchard")
             add("antCooperate")
             add("antSports")
@@ -182,7 +182,7 @@ object CustomSettings {
         if (s.isEnabledOverride && s.isFinishedToday) {
             val moduleId = getModuleId(taskInfo)
             if (moduleId != null) {
-                return onlyOnceDailyList.value.contains(moduleId)
+                return onlyOnceDailyList.value?.contains(moduleId) == true
             }
         }
         return false
@@ -203,8 +203,8 @@ object CustomSettings {
         }
 
         val now = System.currentTimeMillis()
-        val interval = BaseModel.checkInterval.value.toLong()
-        val isSpecialTime = autoHandleOnceDailyTimes.value.any { timeStr ->
+        val interval = (BaseModel.checkInterval.value ?: 0).toLong()
+        val isSpecialTime = (autoHandleOnceDailyTimes.value ?: emptyList()).any { timeStr ->
             val startCal = TimeUtil.getTodayCalendarByTimeStr(timeStr)
             if (startCal != null) {
                 val startTime = startCal.timeInMillis
@@ -217,12 +217,12 @@ object CustomSettings {
 
         var isEnabled = configEnabled
 
-        if (isSpecialTime && autoHandleOnceDaily.value) {
+        if (isSpecialTime && autoHandleOnceDaily.value == true) {
             isEnabled = false
             if (enableLog) Log.record("自动单次运行触发: 现在处于自动全量运行时段，本次将运行所有已开启的任务")
-        } else if (enableLog && autoHandleOnceDaily.value) {
+        } else if (enableLog && autoHandleOnceDaily.value == true) {
             val sdf = SimpleDateFormat("HHmm", Locale.getDefault())
-            val ranges = autoHandleOnceDailyTimes.value.mapNotNull { timeStr ->
+            val ranges = (autoHandleOnceDailyTimes.value ?: emptyList()).mapNotNull { timeStr ->
                 TimeUtil.getTodayCalendarByTimeStr(timeStr)?.let {
                     val endTime = it.timeInMillis + interval
                     "$timeStr-${sdf.format(Date(endTime))}"
@@ -269,8 +269,8 @@ object CustomSettings {
             false
         }
         val statusText = when {
-            !onlyOnceDaily.value -> "单次运行：已关闭"
-            autoHandleOnceDaily.value -> "单次运行：自动模式"
+            onlyOnceDaily.value != true -> "单次运行：已关闭"
+            autoHandleOnceDaily.value == true -> "单次运行：自动模式"
             isFinished -> "单次运行：今日已完成"
             else -> "单次运行：已开启"
         }
@@ -304,7 +304,7 @@ object CustomSettings {
                     }
                 } else if (which == 2) {
                     val edt = android.widget.EditText(context)
-                    edt.setText(autoHandleOnceDailyTimes.configValue)
+                    edt.setText(autoHandleOnceDailyTimes.getConfigValue() ?: "")
                     AlertDialog.Builder(context)
                         .setTitle("设置 ${showName} 非单次运行时段")
                         .setMessage("输入开始时间点(如0600)，多个用逗号隔开。时段为该时间点加\"设置\"中的执行间隔时间")

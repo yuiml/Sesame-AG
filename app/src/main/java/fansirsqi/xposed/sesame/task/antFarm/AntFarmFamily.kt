@@ -83,42 +83,42 @@ data object AntFarmFamily {
                 eatTogetherConfig = enterRes.getJSONObject("eatTogetherConfig")//美食配置对象
 
 
-                if (familyOptions.value.contains("familySign") && familySignTips) {
+                if (familyOptions.value?.contains("familySign") == true && familySignTips) {
                     familySign()
                 }
 
                 if (assignFamilyMemberInfo != null
-                    && familyOptions.value.contains("assignRights")
+                    && familyOptions.value?.contains("assignRights") == true
                     && assignFamilyMemberInfo.getJSONObject("assignRights").getString("status") != "USED"
                 ) {
                     if (assignFamilyMemberInfo.getJSONObject("assignRights").getString("assignRightsOwner") == UserMap.currentUid) {
                         assignFamilyMember(assignFamilyMemberInfo, familyUserIds)
                     } else {
                         Log.record("家庭任务🏡[使用顶梁柱特权] 不是家里的顶梁柱！")
-                        familyOptions.value.remove("assignRights")
+                        familyOptions.value?.remove("assignRights")
                     }
                 }
 
-                if (familyOptions.value.contains("familyClaimReward") && familyAwardNum > 0) {
+                if (familyOptions.value?.contains("familyClaimReward") == true && familyAwardNum > 0) {
                     familyClaimRewardList()
                 }
 
-                if (familyOptions.value.contains("feedFamilyAnimal")) {
+                if (familyOptions.value?.contains("feedFamilyAnimal") == true) {
                     familyFeedFriendAnimal(familyAnimals)
                 }
 
-                if (familyOptions.value.contains("eatTogetherConfig")) {
+                if (familyOptions.value?.contains("eatTogetherConfig") == true) {
                     familyEatTogether(eatTogetherConfig, familyInteractActions, familyUserIds)
                 }
 
-                if (familyOptions.value.contains("deliverMsgSend")) {
+                if (familyOptions.value?.contains("deliverMsgSend") == true) {
                     deliverMsgSend(familyUserIds)
                 }
 
-                if (familyOptions.value.contains("shareToFriends")) {
+                if (familyOptions.value?.contains("shareToFriends") == true) {
                     familyShareToFriends(familyUserIds, notInviteList)
                 }
-                if (familyOptions.value.contains("ExchangeFamilyDecoration")) {
+                if (familyOptions.value?.contains("ExchangeFamilyDecoration") == true) {
                     autoExchangeFamilyDecoration()
                 }
             }
@@ -549,7 +549,7 @@ data object AntFarmFamily {
                 return
             }
 
-            val familyValue: MutableSet<String?> = notInviteList.value
+            val familyValue: MutableSet<String?> = notInviteList.value ?: mutableSetOf()
             val allUser: List<AlipayUser> = AlipayUser.getList()
 
             if (allUser.isEmpty()) {

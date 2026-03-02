@@ -61,14 +61,14 @@ class ManualTaskModel : ModelTask() {
         }
 
         val selectedTasks = mutableListOf<CustomTask>()
-        if (forestWhackMole.value) selectedTasks.add(CustomTask.FOREST_WHACK_MOLE)
-        if (forestEnergyRain.value) selectedTasks.add(CustomTask.FOREST_ENERGY_RAIN)
-        if (farmSendBackAnimal.value) selectedTasks.add(CustomTask.FARM_SEND_BACK_ANIMAL)
-        if (farmGameLogic.value) selectedTasks.add(CustomTask.FARM_GAME_LOGIC)
-        if (farmChouChouLe.value) selectedTasks.add(CustomTask.FARM_CHOUCHOULE)
+        if (forestWhackMole.value == true) selectedTasks.add(CustomTask.FOREST_WHACK_MOLE)
+        if (forestEnergyRain.value == true) selectedTasks.add(CustomTask.FOREST_ENERGY_RAIN)
+        if (farmSendBackAnimal.value == true) selectedTasks.add(CustomTask.FARM_SEND_BACK_ANIMAL)
+        if (farmGameLogic.value == true) selectedTasks.add(CustomTask.FARM_GAME_LOGIC)
+        if (farmChouChouLe.value == true) selectedTasks.add(CustomTask.FARM_CHOUCHOULE)
 
         val extraParams = HashMap<String, Any>()
-        extraParams["exchangeEnergyRainCard"] = exchangeEnergyRainCard.value
+        extraParams["exchangeEnergyRainCard"] = exchangeEnergyRainCard.value == true
 
         // 使用上游推荐的 GlobalThreadPools 执行手动流
         GlobalThreadPools.execute {

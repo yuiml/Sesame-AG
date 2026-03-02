@@ -203,8 +203,9 @@ class AntMember : ModelTask() {
             ).also { annualReview = it })*/
 
 
-        collectStickers = BooleanModelField("CollectStickers", "领取贴纸", false)
-        modelFields.addField(collectStickers)
+        modelFields.addField(
+            BooleanModelField("CollectStickers", "领取贴纸", false).also { collectStickers = it }
+        )
 
 
 
@@ -215,7 +216,7 @@ class AntMember : ModelTask() {
         // 使用协程上下文运行
         runBlocking {
             try {
-                record(TAG, "执行开始-$name")
+                record(TAG, "执行开始-${getName()}")
                 // 异步获取位置信息-for 2101
                 requestLocationSuspend()
                 // 芝麻信用相关检测
@@ -224,24 +225,24 @@ class AntMember : ModelTask() {
                 // 并行执行独立任务
                 val deferredTasks = mutableListOf<Deferred<Unit>>()
 
-                if (memberSign!!.value) {
+                if (memberSign?.value == true) {
                     deferredTasks.add(async(Dispatchers.IO) { doMemberSign() })
                 }
 
-                if (memberTask!!.value) {
+                if (memberTask?.value == true) {
                     deferredTasks.add(async(Dispatchers.IO) { doAllMemberAvailableTask() })
                 }
 
-                if (memberPointExchangeBenefit!!.value) {
+                if (memberPointExchangeBenefit?.value == true) {
                     deferredTasks.add(async(Dispatchers.IO) { memberPointExchangeBenefit() })
                 }
                 if (isSesameOpened) {
 
                     // 芝麻粒兑换入口
-                    if (sesameGrainExchange!!.value) {
+                    if (sesameGrainExchange?.value == true) {
                         deferredTasks.add(async(Dispatchers.IO) { doSesameGrainExchange() })
                     }
-                    if ((sesameTask!!.value || collectSesame!!.value)) {
+                    if (sesameTask?.value == true || collectSesame?.value == true) {
                         // 芝麻粒福利签到
                         doSesameZmlCheckIn()
                         if (hasFlagToday(StatusFlags.FLAG_ANTMEMBER_DO_ALL_SESAME_TASK)) {
@@ -254,17 +255,17 @@ class AntMember : ModelTask() {
                             queryAndCollect() //做完任务领取球
                             record(TAG, "✅ 芝麻信用任务已完成，今天不再执行")
                         }
-                        if (collectSesame!!.value) {
+                        if (collectSesame?.value == true) {
                             deferredTasks.add(async(Dispatchers.IO) {
                                 collectSesame(
-                                    collectSesameWithOneClick!!.value
+                                    collectSesameWithOneClick?.value == true
                                 )
                             })
                         }
                     }
 
                     // 芝麻炼金
-                    if (sesameAlchemy!!.value) {
+                    if (sesameAlchemy?.value == true) {
                         deferredTasks.add(async(Dispatchers.IO) {
                             doSesameAlchemy()
                             // ===== 次日奖励：只有今天还没领过才执行 =====
@@ -275,32 +276,32 @@ class AntMember : ModelTask() {
                     }
 
                     // 芝麻树
-                    if (enableZhimaTree!!.value) {
+                    if (enableZhimaTree?.value == true) {
                         deferredTasks.add(async(Dispatchers.IO) { doZhimaTree() })
                     }
                 }
 
 
                 //保障金
-                if (collectInsuredGold!!.value) {
+                if (collectInsuredGold?.value == true) {
                     deferredTasks.add(async(Dispatchers.IO) { collectInsuredGold() })
                 }
 
                 // 【更新】执行黄金票任务，替换旧的 goldTicket()
-                if (enableGoldTicket!!.value || enableGoldTicketConsume!!.value) {
+                if (enableGoldTicket?.value == true || enableGoldTicketConsume?.value == true) {
                     // 传入签到和提取的开关值
                     deferredTasks.add(async(Dispatchers.IO) {
                         doGoldTicketTask(
-                            enableGoldTicket!!.value, enableGoldTicketConsume!!.value
+                            enableGoldTicket?.value == true, enableGoldTicketConsume?.value == true
                         )
                     })
                 }
 
-                if (enableGameCenter!!.value) {
+                if (enableGameCenter?.value == true) {
                     deferredTasks.add(async(Dispatchers.IO) { enableGameCenter() })
                 }
 
-                if (beanSignIn!!.value) {
+                if (beanSignIn?.value == true) {
                     deferredTasks.add(async(Dispatchers.IO) { beanSignIn() })
                 }
 
@@ -308,13 +309,13 @@ class AntMember : ModelTask() {
                     deferredTasks.add(async(Dispatchers.IO) { doAnnualReview() })
                 }*/
 
-                if (beanExchangeBubbleBoost!!.value) {
+                if (beanExchangeBubbleBoost?.value == true) {
                     deferredTasks.add(async(Dispatchers.IO) { beanExchangeBubbleBoost() })
                 }
 
 
 
-                if (merchantSign!!.value || merchantKmdk!!.value || merchantMoreTask!!.value) {
+                if (merchantSign?.value == true || merchantKmdk?.value == true || merchantMoreTask?.value == true) {
                     deferredTasks.add(async(Dispatchers.IO) {
                         val jo = JSONObject(AntMemberRpcCall.transcodeCheck())
                         if (!ResChecker.checkRes(TAG, jo)) {
@@ -325,16 +326,16 @@ class AntMember : ModelTask() {
                             record(TAG, "商家服务👪未开通")
                             return@async
                         }
-                        if (merchantKmdk!!.value) {
+                        if (merchantKmdk?.value == true) {
                             if (TimeUtil.isNowAfterTimeStr("0600") && TimeUtil.isNowBeforeTimeStr("1200")) {
                                 kmdkSignIn()
                             }
                             kmdkSignUp()
                         }
-                        if (merchantSign!!.value) {
+                        if (merchantSign?.value == true) {
                             doMerchantSign()
                         }
-                        if (merchantMoreTask!!.value) {
+                        if (merchantMoreTask?.value == true) {
                             doMerchantMoreTask()
                         }
                     })
@@ -344,7 +345,7 @@ class AntMember : ModelTask() {
 
 
 
-                if (collectStickers!!.value) {
+                if (collectStickers?.value == true) {
                     queryAndCollectStickers()
                 }
 
@@ -355,7 +356,7 @@ class AntMember : ModelTask() {
             } catch (t: Throwable) {
                 Log.printStackTrace(TAG, t)
             } finally {
-                record(TAG, "执行结束-$name")
+                record(TAG, "执行结束-${getName()}")
             }
         }
     }
@@ -371,7 +372,7 @@ class AntMember : ModelTask() {
                 return
             }
 
-            if (resp.isEmpty()) {
+            if (resp.isNullOrEmpty()) {
                 record("$TAG.handleGrowthGuideTasks", "信誉任务列表返回空")
                 return
             }
@@ -623,6 +624,12 @@ class AntMember : ModelTask() {
         }
     }
 
+    /*
+     * 年度回顾已下线：相关 RPC/组件字段不再维护。
+     * 为保证编译通过，暂时整体注释掉这一段实现（含 RPC/组件常量未补齐部分）。
+     *
+     * 如需恢复：请先补齐 AntMemberRpcCall.annualReview* 与组件常量后再启用。
+     *
     /**
      * 年度回顾任务：通过 programInvoke 查询并自动完成任务
      *
@@ -898,6 +905,8 @@ class AntMember : ModelTask() {
             Log.printStackTrace("$TAG.doAnnualReview", t)
         }
     }
+
+    */
 
     /**
      * 会员积分0元兑，权益道具兑换
@@ -1175,11 +1184,12 @@ class AntMember : ModelTask() {
                                 val completeJo = JSONObject(completeRes)
                                 if (ResChecker.checkRes(TAG, completeJo)) {
                                     val prize = completeJo.optJSONObject("data")
-                                    val num = prize?.optInt(
-                                        "zmlNum", if (prize.optJSONObject("prize") != null) Objects.requireNonNull(
-                                            prize.optJSONObject("prize")
-                                        ).optInt("num", 0) else 0
-                                    ) ?: 0
+                                    val num = if (prize == null) {
+                                        0
+                                    } else {
+                                        val prizeObj = prize.optJSONObject("prize")
+                                        prize.optInt("zmlNum", prizeObj?.optInt("num", 0) ?: 0)
+                                    }
                                     Log.other("芝麻炼金⚗️[每日签到成功]#获得" + num + "粒")
                                 } else {
                                     Log.error("$TAG.doSesameAlchemy", "炼金签到失败:$completeRes")
@@ -1347,7 +1357,7 @@ class AntMember : ModelTask() {
         val id = taskConfigInfo.getLong("id")
         val awardParamPoint = taskConfigInfo.getJSONObject("awardParam").getString("awardParamPoint")
         val targetBusiness = taskConfigInfo.getJSONArray("targetBusiness").getString(0)
-        val targetBusinessArray: Array<String?> = targetBusiness.split("#".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
+        val targetBusinessArray = targetBusiness.split("#".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
         if (targetBusinessArray.size < 3) {
             Log.error(TAG, "processTask target param err:" + targetBusinessArray.contentToString())
             return@run
@@ -1932,9 +1942,12 @@ class AntMember : ModelTask() {
                                 val completeJo = JSONObject(completeRes)
                                 if (ResChecker.checkRes(TAG, completeJo)) {
                                     val prize = completeJo.optJSONObject("data")
-                                    val num = prize?.optInt(
-                                        "zmlNum", prize.optJSONObject("prize")?.optInt("num", 0) ?: 0
-                                    ) ?: 0
+                                    val num = if (prize == null) {
+                                        0
+                                    } else {
+                                        val prizeObj = prize.optJSONObject("prize")
+                                        prize.optInt("zmlNum", prizeObj?.optInt("num", 0) ?: 0)
+                                    }
                                     Log.other("芝麻炼金⚗️[每日签到成功]#获得" + num + "粒")
                                 } else {
                                     Log.error("$TAG.doSesameAlchemy", "炼金签到失败:$completeRes")
@@ -2408,7 +2421,9 @@ class AntMember : ModelTask() {
 
     private fun doTaskAction(taskId: String?, stageCode: String?): Boolean {
         try {
-            val s = AntMemberRpcCall.rentGreenTaskFinish(taskId, stageCode) ?: return false
+            val safeTaskId = taskId?.takeIf { it.isNotBlank() } ?: return false
+            val safeStageCode = stageCode?.takeIf { it.isNotBlank() } ?: return false
+            val s = AntMemberRpcCall.rentGreenTaskFinish(safeTaskId, safeStageCode) ?: return false
             val json = JSONObject(s)
             return ResChecker.checkRes(TAG, json)
         } catch (e: Exception) {
@@ -2974,7 +2989,9 @@ class AntMember : ModelTask() {
          * @param title 标题
          */
         private suspend fun taskReceive(
-            taskCode: String?, actionCode: String?, title: String?
+            taskCode: String,
+            actionCode: String,
+            title: String
         ): Unit = CoroutineUtils.run {
             try {
                 val s = AntMemberRpcCall.taskReceive(taskCode)
@@ -3011,7 +3028,7 @@ class AntMember : ModelTask() {
         try {
             val userId = UserMap.currentUid
             // 获取用户在配置中选中的商品ID列表（白名单）
-            val targetIds = sesameGrainExchangeList!!.value
+            val targetIds = sesameGrainExchangeList?.value ?: emptySet()
             var currentPage = 1
             // 限制最大页数，防止无限循环（抓包看大概也就3-5页）
             val maxPage = 10

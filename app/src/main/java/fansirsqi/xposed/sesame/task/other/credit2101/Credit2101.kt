@@ -273,7 +273,7 @@ object Credit2101 {
             Log.record(TAG, "信用2101🔍[开始探测循环]")
 
             // ================== 主循环 ==================
-            while (true) {
+            while (!Thread.currentThread().isInterrupted) {
                 //GlobalThreadPools.sleepCompat(2000)
 
                 // 防死循环保护
@@ -849,11 +849,13 @@ object Credit2101 {
             val sb = StringBuilder()
             BufferedReader(InputStreamReader(conn.inputStream, StandardCharsets.UTF_8)).use { br ->
                 var line: String?
-                while (true) {
+                while (!Thread.currentThread().isInterrupted) {
                     line = br.readLine() ?: break
                     sb.append(line)
                 }
             }
+
+            if (Thread.currentThread().isInterrupted) return null
 
             JSONObject(sb.toString())
         } catch (e: Throwable) {
@@ -1564,12 +1566,8 @@ object Credit2101 {
                     Log.record(TAG, "信用2101📖[故事事件${storyId}] 处理异常，标记为已处理: ${e.message}")
                 }
                 // 添加适当延迟避免请求过于频繁
-                try {
-                    Thread.sleep(800) // 增加延迟到800ms
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    break
-                }
+                GlobalThreadPools.sleepCompat(800) // 增加延迟到800ms
+                if (Thread.currentThread().isInterrupted) break
             }
             var successCount = 0
             var totalGainAmount = 0
@@ -1902,7 +1900,7 @@ object Credit2101 {
             // 3. 开始升级流程
             Log.other("信用2101🎮[天赋] 发现 $availablePoint 点可用，开始升级...")
 
-            while (availablePoint > 0 && upgradeableList.isNotEmpty()) {
+            while (availablePoint > 0 && upgradeableList.isNotEmpty() && !Thread.currentThread().isInterrupted) {
                 // 随机选择一个未满级的天赋
                 val index = (0 until upgradeableList.size).random()
                 val target = upgradeableList[index]
@@ -1936,7 +1934,8 @@ object Credit2101 {
                     }
 
                     // 升级间隔，防止并发过快
-                    Thread.sleep(1500)
+                    GlobalThreadPools.sleepCompat(1500)
+                    if (Thread.currentThread().isInterrupted) break
                 } else {
                     val errorMsg = upgradeJo.optString("resultMsg", "未知错误")
                     Log.error(TAG, "信用2101🎮[天赋] $talentName 升级终止: $errorMsg")

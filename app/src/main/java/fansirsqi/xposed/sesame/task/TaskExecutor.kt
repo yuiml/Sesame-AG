@@ -84,12 +84,15 @@ enum class GameTask(
 
             //Log.record(title, "🚀 开始执行任务：目标 $eggCount 个蛋，需请求 $totalNeeded 次")
             for (i in 1..totalNeeded) {
+                if (Thread.currentThread().isInterrupted) break
                 // 执行单次上报
                 if (!executeSingleReport(i, totalNeeded)) {
                     // 具体的错误原因已在 executeSingleReport 中详细输出
                     break
                 }
-                if (i < totalNeeded) Thread.sleep((1000..3000).random().toLong())
+                if (i < totalNeeded) {
+                    GlobalThreadPools.sleepCompat((1000..3000).random().toLong())
+                }
             }
             //Log.record(title, "🏁 任务流程运行结束")
         }.start()

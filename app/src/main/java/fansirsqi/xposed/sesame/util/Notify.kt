@@ -89,7 +89,7 @@ object Notify {
                     .setSubText("芝麻粒")
                     .setAutoCancel(false)
                     .setContentIntent(pi)
-                if (BaseModel.enableOnGoing.value) {
+                if (BaseModel.enableOnGoing.value == true) {
                     builder!!.setOngoing(true)
                 }
                 NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder!!.build())
@@ -285,5 +285,15 @@ object Notify {
         } catch (e: Exception) {
             Log.printStackTrace(e)
         }
+    }
+
+    /**
+     * 兼容方法：旧代码/上游实现中使用的错误通知入口
+     *
+     * 当前实现与 sendNewNotification 行为一致。
+     */
+    @JvmStatic
+    fun sendErrorNotification(title: String?, content: String?) {
+        sendNewNotification(title, content)
     }
 }

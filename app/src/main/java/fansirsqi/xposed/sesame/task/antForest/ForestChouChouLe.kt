@@ -173,6 +173,7 @@ class ForestChouChouLe {
      * 执行抽奖逻辑
      */
     private fun processLottery(s: Scene) {
+        val currentUid = UserMap.currentUid ?: return
         val enterResp = AntForestRpcCall.enterDrawActivityopengreen(s.id, s.code, SOURCE).toJson() ?: return
         if (!enterResp.check()) return
 
@@ -188,7 +189,7 @@ class ForestChouChouLe {
             retry++
             Log.record("${s.name} 第 $retry 次抽奖")
 
-            val drawResp = AntForestRpcCall.drawopengreen(s.id, s.code, SOURCE, UserMap.currentUid).toJson()
+            val drawResp = AntForestRpcCall.drawopengreen(s.id, s.code, SOURCE, currentUid).toJson()
             if (drawResp == null || !drawResp.check()) {
                 break
             }

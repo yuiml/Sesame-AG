@@ -91,8 +91,8 @@ class AntOrchard : ModelTask() {
 
     override suspend fun runSuspend() {
         try {
-            Log.record(TAG, "执行开始-$name")
-            executeIntervalInt = maxOf(executeInterval.value, 500)
+            Log.record(TAG, "执行开始-${getName()}")
+            executeIntervalInt = maxOf(executeInterval.value ?: 0, 500)
 
             val indexResponse = AntOrchardRpcCall.orchardIndex()
             val indexJson = JSONObject(indexResponse)
@@ -123,7 +123,7 @@ class AntOrchard : ModelTask() {
             }
 
             // 七日礼包
-            if (receiveSevenDayGift.value) {
+            if (receiveSevenDayGift.value == true) {
                 if (indexJson.has("lotteryPlusInfo")) {
                     drawLotteryPlus(indexJson.getJSONObject("lotteryPlusInfo"))
                 } else {
@@ -153,7 +153,7 @@ class AntOrchard : ModelTask() {
             }
 
             // 农场任务
-            if (receiveOrchardTaskAward.value) {
+            if (receiveOrchardTaskAward.value == true) {
                 doOrchardDailyTask(userId!!)
                 triggerTbTask()
             }
@@ -170,7 +170,7 @@ class AntOrchard : ModelTask() {
 
             // 施肥逻辑
             // {{ 修改：调用新的施肥分发逻辑 }}
-            if (orchardSpreadManureCountMain.value > 0 || orchardSpreadManureCountYeb.value > 0) {
+            if ((orchardSpreadManureCountMain.value ?: 0) > 0 || (orchardSpreadManureCountYeb.value ?: 0) > 0) {
                 CoroutineUtils.sleepCompat(200)
                 orchardSpreadManure()
             }
@@ -189,7 +189,7 @@ class AntOrchard : ModelTask() {
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "start.run err:", t)
         } finally {
-            Log.record(TAG, "执行结束-$name")
+            Log.record(TAG, "执行结束-${getName()}")
         }
     }
 
@@ -197,8 +197,8 @@ class AntOrchard : ModelTask() {
         try {
             val modeSet = plantModeField.value
             // {{ 修改：分别获取两个配置的上限值 }}
-            val targetLimitMain = orchardSpreadManureCountMain.value
-            val targetLimitYeb = orchardSpreadManureCountYeb.value
+            val targetLimitMain = orchardSpreadManureCountMain.value ?: 0
+            val targetLimitYeb = orchardSpreadManureCountYeb.value ?: 0
 
             // 1. 如果是 摇钱树模式(YEB) 或者 混合模式(HYBRID)
             if (modeSet == PlantModeType.YEB || modeSet == PlantModeType.HYBRID) {
@@ -866,7 +866,7 @@ class AntOrchard : ModelTask() {
                 return
             }
 
-            val friendSet = assistFriendList.value
+            val friendSet = assistFriendList.value ?: emptySet()
             for (uid in friendSet) {
                 val shareId = Base64.encodeToString(
                     ("$uid-${RandomUtil.getRandomInt(5)}ANTFARM_ORCHARD_SHARE_P2P").toByteArray(),

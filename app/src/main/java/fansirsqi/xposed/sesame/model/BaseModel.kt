@@ -10,7 +10,6 @@ import fansirsqi.xposed.sesame.util.ListUtil
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.maps.BeachMap
 import fansirsqi.xposed.sesame.util.maps.IdMapManager
-import lombok.Getter
 
 /**
  * 基础配置模块
@@ -28,15 +27,15 @@ class BaseModel : Model() {
         return "BaseModel.png"
     }
 
-    override fun getEnableFieldName(): String {
-        return "启用模块"
-    }
+    override val enableFieldName: String
+        get() = "启用模块"
 
     override fun getFields(): ModelFields {
         val modelFields = ModelFields()
         modelFields.addField(stayAwake) //是否保持唤醒状态
         modelFields.addField(manualTriggerAutoSchedule) //手动触发是否自动安排下次执行
         modelFields.addField(checkInterval) //执行间隔时间
+        modelFields.addField(offlineCooldown) //离线冷却时间
         modelFields.addField(taskExecutionRounds) //轮数
         modelFields.addField(modelSleepTime) //模块休眠时间范围
         modelFields.addField(execAtTimeList) //定时执行的时间点列表
@@ -78,33 +77,41 @@ class BaseModel : Model() {
         /**
          * 是否保持唤醒状态
          */
-        @Getter
         val stayAwake: BooleanModelField = BooleanModelField("stayAwake", "保持唤醒", true)
 
         /**
          * //手动触发是否自动安排下次执行
          */
-        @Getter
         val manualTriggerAutoSchedule: BooleanModelField = BooleanModelField("manualTriggerAutoSchedule", "手动触发目标应用运行", false) //一般人不开这个
 
         /**
          * 执行间隔时间（分钟）
          */
-        @Getter
         val checkInterval: MultiplyIntegerModelField = MultiplyIntegerModelField("checkInterval", "执行间隔(分钟)", 50, 1, 12 * 60, 60000) //此处调整至30分钟执行一次，可能会比平常耗电一点。。
+
+        /**
+         * 离线冷却时间（分钟）
+         * 0 表示跟随执行间隔（checkInterval）
+         */
+        val offlineCooldown: MultiplyIntegerModelField = MultiplyIntegerModelField(
+            "offlineCooldown",
+            "离线冷却(分钟,0=随执行间隔)",
+            0,
+            0,
+            24 * 60,
+            60000
+        )
 
         /**
          * 任务执行轮数配置
          */
-        @Getter
         val taskExecutionRounds: IntegerModelField = IntegerModelField("taskExecutionRounds", "任务执行轮数", 1, 1, 99) //1轮就好，没必要2轮
 
         /**
          * 定时执行的时间点列表
          */
-        @Getter
         val execAtTimeList: ListJoinCommaToStringModelField = ListJoinCommaToStringModelField(
-            "execAtTimeList", "定时执行(关闭:-1)", ListUtil.newArrayList<String?>(
+            "execAtTimeList", "定时执行(关闭:-1)", ListUtil.newArrayList(
                 "0010", "0030", "0100", "0700", "0730", "1200", "1230", "1700", "1730", "2000", "2030", "2359"
             )
         )
@@ -112,9 +119,8 @@ class BaseModel : Model() {
         /**
          * 定时唤醒的时间点列表
          */
-        @Getter
         val wakenAtTimeList: ListJoinCommaToStringModelField = ListJoinCommaToStringModelField(
-            "wakenAtTimeList", "定时唤醒(关闭:-1)", ListUtil.newArrayList<String?>(
+            "wakenAtTimeList", "定时唤醒(关闭:-1)", ListUtil.newArrayList(
                 "0010", "0030", "0100", "0650", "2350" // 添加多个0点后的时间点
             )
         )
@@ -122,105 +128,86 @@ class BaseModel : Model() {
         /**
          * 能量收集的时间范围
          */
-        @Getter
-        val energyTime: ListJoinCommaToStringModelField = ListJoinCommaToStringModelField("energyTime", "只收能量时间(范围|关闭:-1)", ListUtil.newArrayList<String?>("0700-0730"))
+        val energyTime: ListJoinCommaToStringModelField = ListJoinCommaToStringModelField("energyTime", "只收能量时间(范围|关闭:-1)", ListUtil.newArrayList("0700-0730"))
 
         /**
          * 模块休眠时间范围
          */
-        @Getter
         val modelSleepTime: ListJoinCommaToStringModelField =
-            ListJoinCommaToStringModelField("modelSleepTime", "模块休眠时间(范围|关闭:-1)", ListUtil.newArrayList<String?>("0200-0201"))
+            ListJoinCommaToStringModelField("modelSleepTime", "模块休眠时间(范围|关闭:-1)", ListUtil.newArrayList("0200-0201"))
 
         /**
          * 定时任务模式选择
          */
-        @Getter
         val timedTaskModel: ChoiceModelField = ChoiceModelField("timedTaskModel", "定时任务模式", TimedTaskModel.Companion.SYSTEM, TimedTaskModel.Companion.nickNames)
 
         /**
          * 超时是否重启
          */
-        @Getter
         val timeoutRestart: BooleanModelField = BooleanModelField("timeoutRestart", "超时重启", true)
 
         /**
          * 异常发生时的等待时间（分钟）
          */
-        @Getter
         val waitWhenException: MultiplyIntegerModelField = MultiplyIntegerModelField("waitWhenException", "异常等待时间(分钟)", 60, 0, 24 * 60, 60000)
 
         /**
          * 异常通知开关
          */
-        @Getter
         val errNotify: BooleanModelField = BooleanModelField("errNotify", "开启异常通知", false)
 
-        @Getter
         val setMaxErrorCount: IntegerModelField = IntegerModelField("setMaxErrorCount", "异常次数阈值", 8)
 
         /**
          * 是否启用新接口（最低支持版本 v10.3.96.8100）
          */
-        @Getter
         val newRpc: BooleanModelField = BooleanModelField("newRpc", "使用新接口(最低支持v10.3.96.8100)", true)
 
         /**
          * 是否开启抓包调试模式
          */
-        @Getter
         val debugMode: BooleanModelField = BooleanModelField("debugMode", "开启抓包(基于新接口)", false)
 
         /**
          * 是否申请目标应用的后台运行权限
          */
-        @Getter
         val batteryPerm: BooleanModelField = BooleanModelField("batteryPerm", "为目标应用申请后台运行权限", true)
 
 
         /**
          * 是否记录record日志
          */
-        @Getter
         val recordLog: BooleanModelField = BooleanModelField("recordLog", "全部 | 记录record日志", true)
 
         /**
          * 是否记录runtime日志
          */
-        @Getter
         val runtimeLog: BooleanModelField = BooleanModelField("runtimeLog", "全部 | 记录runtime日志", false)
 
         /**
          * 是否显示气泡提示
          */
-        @Getter
         val showToast: BooleanModelField = BooleanModelField("showToast", "气泡提示", true)
 
-        @Getter
-        val toastPerfix: StringModelField = StringModelField("toastPerfix", "气泡前缀", null)
+        val toastPerfix: StringModelField = StringModelField("toastPerfix", "气泡前缀", "")
 
         /**
          * 气泡提示的纵向偏移量
          */
-        @Getter
         val toastOffsetY: IntegerModelField = IntegerModelField("toastOffsetY", "气泡纵向偏移", 99)
 
         /**
          * 只显示中文并设置时区
          */
-        @Getter
         val languageSimplifiedChinese: BooleanModelField = BooleanModelField("languageSimplifiedChinese", "只显示中文并设置时区", true)
 
         /**
          * 是否开启状态栏禁删
          */
-        @Getter
         val enableOnGoing: BooleanModelField = BooleanModelField("enableOnGoing", "开启状态栏禁删", false)
 
-        @Getter
         val sendHookData: BooleanModelField = BooleanModelField("sendHookData", "启用Hook数据转发", false)
 
-        @Getter
         val sendHookDataUrl: StringModelField = StringModelField("sendHookDataUrl", "Hook数据转发地址", "http://127.0.0.1:9527/hook")
 
         /**
@@ -230,7 +217,6 @@ class BaseModel : Model() {
          * - 定时执行开关与每日次数在「RPC 调试」条目内设置
          * - 执行日志输出到“抓包日志(capture)”
          */
-        @Getter
         val customRpcScheduleEnable: BooleanModelField =
             BooleanModelField("customRpcScheduleEnable", "自定义RPC | 配置文件定时执行(慎用)", false)
 

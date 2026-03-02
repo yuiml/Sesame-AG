@@ -47,16 +47,16 @@ object EcoLife {
                 return
             }
 
-            if (AntForest.ecoLifeOption!!.value.contains("plate")) {
+            if (AntForest.ecoLifeOption?.value?.contains("plate") == true) {
                 // 光盘行动
                 photoGuangPan(dayPoint)
             }
 
             val actionListVO = data.getJSONArray("actionListVO")
             // 绿色打卡
-            if (AntForest.ecoLifeOption!!.value.contains("tick")) {
+            if (AntForest.ecoLifeOption?.value?.contains("tick") == true) {
                 if (!data.getBoolean("openStatus")) {
-                    if (!openEcoLife() || !AntForest.ecoLifeOpen!!.value) {
+                    if (!openEcoLife() || AntForest.ecoLifeOpen?.value != true) {
                         return
                     }
                     jsonObject = JSONObject(AntForestRpcCall.ecolifeQueryHomePage())
@@ -105,6 +105,7 @@ object EcoLife {
      */
     fun ecoLifeTick(actionListVO: JSONArray, dayPoint: String?) {
         try {
+            val safeDayPoint = dayPoint ?: return
             val source = "source"
             for (i in 0..<actionListVO.length()) {
                 val actionVO = actionListVO.getJSONObject(i)
@@ -116,7 +117,7 @@ object EcoLife {
                     val actionId = actionItem.getString("actionId")
                     val actionName = actionItem.getString("actionName")
                     if ("photoguangpan" == actionId) continue
-                    val jo = JSONObject(AntForestRpcCall.ecolifeTick(actionId, dayPoint, source))
+                    val jo = JSONObject(AntForestRpcCall.ecolifeTick(actionId, safeDayPoint, source))
                     if (ResChecker.checkRes(TAG, jo)) {
                         Log.forest("绿色打卡🍀[$actionName]") // 成功打卡日志
                     } else {
@@ -145,6 +146,7 @@ object EcoLife {
     fun photoGuangPan(dayPoint: String?) {
         try {
             if (Status.hasFlagToday("EcoLife::photoGuangPan")) return
+            val safeDayPoint = dayPoint ?: return
 
             val source = "renwuGD" // 任务来源标识
 
@@ -154,7 +156,7 @@ object EcoLife {
             val allPhotos: MutableList<MutableMap<String?, String?>> = DataStore.getOrCreate("plate", typeRef)
             Log.record("$TAG [DEBUG] guangPanPhoto 数据内容: $allPhotos")
             // 查询今日任务状态
-            var str = AntForestRpcCall.ecolifeQueryDish(source, dayPoint)
+            var str = AntForestRpcCall.ecolifeQueryDish(source, safeDayPoint)
             var jo = JSONObject(str)
             // 如果请求失败，则记录错误信息并返回
             if (!ResChecker.checkRes(TAG, jo)) {
@@ -215,13 +217,15 @@ object EcoLife {
                 }
                 return
             }
+            val beforeImageId = photo["before"] ?: return
+            val afterImageId = photo["after"] ?: return
             str = AntForestRpcCall.ecolifeUploadDishImage(
                 "BEFORE_MEALS",
-                photo["before"],
+                beforeImageId,
                 0.16571736,
                 0.07448776,
                 0.7597949,
-                dayPoint
+                safeDayPoint
             )
             jo = JSONObject(str)
             if (!ResChecker.checkRes(TAG, jo)) {
@@ -229,18 +233,18 @@ object EcoLife {
             }
             str = AntForestRpcCall.ecolifeUploadDishImage(
                 "AFTER_MEALS",
-                photo["after"],
+                afterImageId,
                 0.00040030346,
                 0.99891376,
                 0.0006858421,
-                dayPoint
+                safeDayPoint
             )
             jo = JSONObject(str)
             if (!ResChecker.checkRes(TAG, jo)) {
                 return
             }
             // 提交任务
-            str = AntForestRpcCall.ecolifeTick("photoguangpan", dayPoint, source)
+            str = AntForestRpcCall.ecolifeTick("photoguangpan", safeDayPoint, source)
             jo = JSONObject(str)
             // 如果提交失败，记录错误信息并返回
             if (!ResChecker.checkRes(TAG, jo)) {

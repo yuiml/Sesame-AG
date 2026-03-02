@@ -56,7 +56,7 @@ class CoroutineTaskRunner(allModels: List<Model>) {
      */
     suspend fun run(
         isFirst: Boolean = true,
-        rounds: Int = BaseModel.taskExecutionRounds.value
+        rounds: Int = BaseModel.taskExecutionRounds.value ?: 1
     ) = coroutineScope { // 使用 coroutineScope 创建子作用域
         val startTime = System.currentTimeMillis()
 
@@ -86,7 +86,7 @@ class CoroutineTaskRunner(allModels: List<Model>) {
                 executeRound(round, rounds, status)
             }
 
-            if (CustomSettings.onlyOnceDaily.value) {
+            if (CustomSettings.onlyOnceDaily.value == true) {
                 // 确保时间状态是最新的
                 TaskCommon.update()
                 if (TaskCommon.IS_MODULE_SLEEP_TIME) {
@@ -115,10 +115,10 @@ class CoroutineTaskRunner(allModels: List<Model>) {
 
         // 1. 筛选任务
         val tasksToRun = taskList.filter { task ->
-            task.isEnable && !CustomSettings.isOnceDailyBlackListed(task.getName(), status)
+            task.isEnable() && !CustomSettings.isOnceDailyBlackListed(task.getName(), status)
         }
 
-        val excludedCount = taskList.count { it.isEnable } - tasksToRun.size
+        val excludedCount = taskList.count { it.isEnable() } - tasksToRun.size
         if (excludedCount > 0) skippedCount.addAndGet(excludedCount)
 
         Log.record(TAG, "🔄 [第 $round/$totalRounds 轮] 开始，共 ${tasksToRun.size} 个任务")

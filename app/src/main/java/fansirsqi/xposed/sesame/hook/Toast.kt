@@ -25,7 +25,7 @@ object Toast {
             return
         }
         var finalMessage = message
-        val shouldShow = showToast.value
+        val shouldShow = force || showToast.value == true
         val perfix = toastPerfix.value
         if (!perfix.isNullOrBlank() && perfix != "null") {
             finalMessage = "$perfix:$message"
