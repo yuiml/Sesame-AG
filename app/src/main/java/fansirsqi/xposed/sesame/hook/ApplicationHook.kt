@@ -251,6 +251,25 @@ class ApplicationHook {
                                 }
                                 HookUtil.hookUser(classLoader!!)
                             }
+
+                            // 访问被拒绝/需要滑块验证后，用户手动完成验证并回到首页时会触发 onResume。
+                            // 这里自动退出 auth_like 离线状态并恢复执行链路，避免长期卡在离线模式无法继续任务。
+                            if (ApplicationHookConstants.isOffline() &&
+                                ApplicationHookConstants.offlineReason == "auth_like"
+                            ) {
+                                record(TAG, "检测到 auth_like 离线状态，尝试在 onResume 退出离线并恢复任务执行")
+                                ApplicationHookConstants.setOffline(false)
+                                lastExecTime = 0
+                                updateStatusText("✅ 验证已解除，恢复执行")
+                                ApplicationHookCore.requestExecution(
+                                    ApplicationHookConstants.TriggerInfo(
+                                        type = ApplicationHookConstants.TriggerType.ON_RESUME,
+                                        priority = ApplicationHookConstants.TriggerPriority.HIGH,
+                                        reason = "auth_like_recovered",
+                                        dedupeKey = "auth_like_recovered"
+                                    )
+                                )
+                            }
                         }
                     }
                 })
@@ -275,8 +294,14 @@ class ApplicationHook {
                     mainTask = MainTask("主任务") { runMainTaskLogic() }
                     dayCalendar = Calendar.getInstance()
                     val initReason = pendingInitReason ?: "service_onCreate"
-                    if (initHandler(initReason)) {
-                        init = true
+                    if (!init || pendingInit) {
+                        if (initHandler(initReason)) {
+                            init = true
+                        }
+                    } else {
+                        // 已经初始化过，避免重复初始化导致重复 Toast、重置线程池等副作用
+                        pendingInit = false
+                        pendingInitReason = null
                     }
                 }
             })
@@ -287,6 +312,8 @@ class ApplicationHook {
                     if (General.CURRENT_USING_SERVICE == s.javaClass.getCanonicalName()) {
                         updateStatusText("目标应用前台服务被销毁")
                         destroyHandler()
+                        service = null
+                        mainTask = null
                         restartByBroadcast()
                     }
                 }
@@ -744,6 +771,10 @@ class ApplicationHook {
         @Synchronized
         fun destroyHandler() {
             try {
+                init = false
+                pendingInit = false
+                pendingInitReason = null
+                lastExecTime = 0
                 try {
                     fansirsqi.xposed.sesame.util.DataStore.shutdown()
                 } catch (_: Throwable) {

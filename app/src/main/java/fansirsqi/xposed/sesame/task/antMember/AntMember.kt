@@ -2758,15 +2758,15 @@ class AntMember : ModelTask() {
                     s = AntMemberRpcCall.joinSesameTask(taskTemplateId)
                     delay(200)
                     responseObj = JSONObject(s)
-                    if (!ResChecker.checkRes(TAG, responseObj)) {
-                        Log.error(TAG, "芝麻信用💳[领取任务" + taskTitle + "失败]#" + s)
-                        // 自动添加到黑名单
-                        val errorCode = responseObj.optString("errorCode", "")
-                        if (!errorCode.isEmpty()) {
-                            autoAddToBlacklist(taskTitle, taskTitle, errorCode)
-                        }
-                        skippedCount++
-                        continue
+                     if (!ResChecker.checkRes(TAG, responseObj)) {
+                         Log.error(TAG, "芝麻信用💳[领取任务" + taskTitle + "失败]#" + s)
+                         // 自动添加到黑名单
+                         val errorCode = responseObj.optString("errorCode", responseObj.optString("resultCode", ""))
+                         if (!errorCode.isEmpty()) {
+                             autoAddToBlacklist(taskTitle, taskTitle, errorCode)
+                         }
+                         skippedCount++
+                         continue
                     }
                     recordId = responseObj.getJSONObject("data").getString("recordId")
                 } else {
@@ -2788,16 +2788,16 @@ class AntMember : ModelTask() {
                             TAG, "芝麻信用💳[完成任务" + taskTitle + "]#(" + (j + 1) + "/" + needCompleteNum + "天)"
                         )
                         taskCompleted = true
-                    } else {
-                        Log.error(TAG, "芝麻信用💳[完成任务" + taskTitle + "失败]#" + s)
-                        // 自动添加到黑名单
-                        val errorCode = responseObj.optString("errorCode", "")
-                        if (!errorCode.isEmpty()) {
-                            autoAddToBlacklist(taskTitle, taskTitle, errorCode)
-                        }
-                        break
-                    }
-                }
+                     } else {
+                         Log.error(TAG, "芝麻信用💳[完成任务" + taskTitle + "失败]#" + s)
+                         // 自动添加到黑名单
+                         val errorCode = responseObj.optString("errorCode", responseObj.optString("resultCode", ""))
+                         if (!errorCode.isEmpty()) {
+                             autoAddToBlacklist(taskTitle, taskTitle, errorCode)
+                         }
+                         break
+                     }
+                 }
 
                 if (taskCompleted) {
                     completedCount++

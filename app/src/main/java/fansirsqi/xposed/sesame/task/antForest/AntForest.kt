@@ -19,6 +19,7 @@ import fansirsqi.xposed.sesame.hook.internal.AlipayMiniMarkHelper
 import fansirsqi.xposed.sesame.hook.internal.AuthCodeHelper
 import fansirsqi.xposed.sesame.hook.rpc.intervallimit.FixedOrRangeIntervalLimit
 import fansirsqi.xposed.sesame.hook.rpc.intervallimit.IntervalLimit
+import fansirsqi.xposed.sesame.hook.rpc.intervallimit.MinIntervalLimit
 import fansirsqi.xposed.sesame.hook.rpc.intervallimit.RpcIntervalLimit.addIntervalLimit
 import fansirsqi.xposed.sesame.model.BaseModel
 import fansirsqi.xposed.sesame.model.ModelFields
@@ -134,8 +135,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
     private val doubleCardLockObj = Any()
 
     // 并发控制信号量，限制同时处理的好友数量，避免过多并发导致性能问题
-    // 设置为60
-    private val concurrencyLimiter = Semaphore(60)
+    private val concurrencyLimiter = Semaphore(FRIEND_PROCESS_CONCURRENCY)
 
     private var collectEnergy: BooleanModelField? = null // 收集能量开关
     private var pkEnergy: BooleanModelField? = null // PK能量开关
@@ -775,13 +775,17 @@ class AntForest : ModelTask(), EnergyCollectCallback {
 
 
         // 安全创建各种区间限制
-        val queryIntervalLimit = createSafeIntervalLimit(
+        val queryHomeIntervalLimit = createSafeIntervalLimit(
             queryInterval!!.value, 10, 10000, "查询间隔"
+        )
+        val friendHomeIntervalLimit = MinIntervalLimit(
+            createSafeIntervalLimit(queryInterval!!.value, 10, 10000, "好友主页查询间隔"),
+            FRIEND_HOME_MIN_INTERVAL_MS
         )
 
         // 添加RPC间隔限制
-        addIntervalLimit("alipay.antforest.forest.h5.queryHomePage", queryIntervalLimit)
-        addIntervalLimit("alipay.antforest.forest.h5.queryFriendHomePage", queryIntervalLimit)
+        addIntervalLimit("alipay.antforest.forest.h5.queryHomePage", queryHomeIntervalLimit)
+        addIntervalLimit("alipay.antforest.forest.h5.queryFriendHomePage", friendHomeIntervalLimit)
         addIntervalLimit("alipay.antmember.forest.h5.collectEnergy", 300)
         addIntervalLimit("alipay.antmember.forest.h5.queryEnergyRanking", 300)
         addIntervalLimit("alipay.antforest.forest.h5.fillUserRobFlag", 500)
@@ -2541,7 +2545,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 friendNames.add(displayName)
             }
 
-            Log.record(TAG, "📋 开始处理${friendList.length()}个${sourceName}（并发数:60）")
+            Log.record(TAG, "📋 开始处理${friendList.length()}个${sourceName}（并发数:$FRIEND_PROCESS_CONCURRENCY）")
             Log.record(TAG, "👥 ${friendNames.joinToString(" | ")}")
             val startTime = System.currentTimeMillis()
 
@@ -5044,6 +5048,10 @@ class AntForest : ModelTask(), EnergyCollectCallback {
 
     companion object {
         val TAG: String = AntForest::class.java.getSimpleName()
+
+        // 访问好友主页过快容易触发风控；这里在并发和最小间隔上做保守兜底（仍可通过配置调大查询间隔）。
+        private const val FRIEND_PROCESS_CONCURRENCY = 8
+        private const val FRIEND_HOME_MIN_INTERVAL_MS = 2000
 
         @JvmField
         var instance: AntForest? = null

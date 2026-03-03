@@ -92,39 +92,55 @@ object EnergyRainCoroutine {
                 // 2️⃣ 检查是否可以赠送能量雨
                 if (canGrantStatus) {
                     Log.record(TAG, "有送能量雨的机会")
-                    val joEnergyRainCanGrantList = JSONObject(AntForestRpcCall.queryEnergyRainCanGrantList())
-                    val grantInfos = joEnergyRainCanGrantList.optJSONArray("grantInfos") ?: org.json.JSONArray()
-                    val giveEnergyRainSet = AntForest.giveEnergyRainList?.value ?: emptySet()
-                    var granted = false
+                    val grantExceedFlag = "EnergyRain::grant_energy_rain_exceed"
+                    if (Status.hasFlagToday(grantExceedFlag)) {
+                        Log.record(TAG, "今日已达到赠送能量雨上限，跳过赠送环节")
+                    } else {
+                        val joEnergyRainCanGrantList = JSONObject(AntForestRpcCall.queryEnergyRainCanGrantList())
+                        val grantInfos = joEnergyRainCanGrantList.optJSONArray("grantInfos") ?: org.json.JSONArray()
+                        val giveEnergyRainSet = AntForest.giveEnergyRainList?.value ?: emptySet()
+                        var granted = false
+                        var grantExceeded = false
 
-                    for (j in 0 until grantInfos.length()) {
-                        val grantInfo = grantInfos.getJSONObject(j)
-                        if (grantInfo.optBoolean("canGrantedStatus", false)) {
-                            val uid = grantInfo.getString("userId")
-                            if (giveEnergyRainSet.contains(uid)) {
-                                val rainJsonObj = JSONObject(AntForestRpcCall.grantEnergyRainChance(uid))
-                                Log.record(TAG, "尝试送能量雨给【${UserMap.getMaskName(uid)}】")
-                                if (ResChecker.checkRes(TAG, rainJsonObj)) {
-                                    Log.forest(
-                                        "赠送能量雨机会给🌧️[${UserMap.getMaskName(uid)}]#${
-                                            UserMap.getMaskName(
-                                                UserMap.currentUid
-                                            )
-                                        }"
-                                    )
-                                    randomDelay(300, 400) // 随机延迟 300-400ms
-                                    granted = true
-                                    break
-                                } else {
-                                    Log.error(TAG, "送能量雨失败 $rainJsonObj")
+                        for (j in 0 until grantInfos.length()) {
+                            val grantInfo = grantInfos.getJSONObject(j)
+                            if (grantInfo.optBoolean("canGrantedStatus", false)) {
+                                val uid = grantInfo.getString("userId")
+                                if (giveEnergyRainSet.contains(uid)) {
+                                    val rainJsonObj = JSONObject(AntForestRpcCall.grantEnergyRainChance(uid))
+                                    Log.record(TAG, "尝试送能量雨给【${UserMap.getMaskName(uid)}】")
+                                    if (ResChecker.checkRes(TAG, rainJsonObj)) {
+                                        Log.forest(
+                                            "赠送能量雨机会给🌧️[${UserMap.getMaskName(uid)}]#${
+                                                UserMap.getMaskName(
+                                                    UserMap.currentUid
+                                                )
+                                            }"
+                                        )
+                                        randomDelay(300, 400) // 随机延迟 300-400ms
+                                        granted = true
+                                        break
+                                    } else {
+                                        val resultCode = rainJsonObj.optString("resultCode")
+                                        if (resultCode == "RAIN_ENERGY_GRANT_EXCEED") {
+                                            // 达到上限后无需继续遍历好友，避免刷屏/风控。
+                                            Status.setFlagToday(grantExceedFlag)
+                                            Log.record(TAG, "送能量雨已达到今日上限，停止继续尝试")
+                                            grantExceeded = true
+                                            break
+                                        }
+                                        Log.error(TAG, "送能量雨失败 $rainJsonObj")
+                                    }
                                 }
                             }
                         }
-                    }
-                    if (granted) {
-                        continue
-                    } else {
-                        Log.record(TAG, "今日无可送能量雨好友或已达到赠送上限")
+                        if (grantExceeded) {
+                            // 已达到上限：已记录并设置今日标记，无需继续提示
+                        } else if (granted) {
+                            continue
+                        } else {
+                            Log.record(TAG, "今日无可送能量雨好友或已达到赠送上限")
+                        }
                     }
                 }
 
