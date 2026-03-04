@@ -28,6 +28,12 @@ object StatusFlags {
     /** 是否已执行「领取所有可做芝麻任务」 */
     const val FLAG_ANTMEMBER_DO_ALL_SESAME_TASK: String = "AntMember::doAllAvailableSesameTask"
 
+    /** 今日是否已处理「芝麻粒福利签到」(zml check-in) */
+    const val FLAG_ANTMEMBER_ZML_CHECKIN_DONE: String = "AntMember::zmlCheckInDone"
+
+    /** 今日是否已处理「芝麻粒领取」(credit feedback collect) */
+    const val FLAG_ANTMEMBER_COLLECT_SESAME_DONE: String = "AntMember::collectSesameDone"
+
     /** 今日贴纸领取任务 */
     const val FLAG_ANTMEMBER_STICKER: String = "Flag_AntMember_Sticker"
 
@@ -70,4 +76,3 @@ object StatusFlags {
     /** 蚂蚁新村：今日丢肥料是否达到上限 */
     const val FLAG_ANTSTALL_THROW_MANURE_LIMIT: String = "Flag_AntStall_Throw_Manure_Limit"
 }
-

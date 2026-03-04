@@ -243,8 +243,12 @@ class AntMember : ModelTask() {
                         deferredTasks.add(async(Dispatchers.IO) { doSesameGrainExchange() })
                     }
                     if (sesameTask?.value == true || collectSesame?.value == true) {
-                        // 芝麻粒福利签到
-                        doSesameZmlCheckIn()
+                        // 芝麻粒福利签到（每日兜底：避免重复请求触发风控）
+                        if (hasFlagToday(StatusFlags.FLAG_ANTMEMBER_ZML_CHECKIN_DONE)) {
+                            record(TAG, "⏭️ 今天已处理过芝麻粒福利签到，跳过执行")
+                        } else {
+                            doSesameZmlCheckIn()
+                        }
                         if (hasFlagToday(StatusFlags.FLAG_ANTMEMBER_DO_ALL_SESAME_TASK)) {
                             record(TAG, "⏭️ 今天已完成过芝麻信用任务，跳过执行")
                         } else {
@@ -256,11 +260,15 @@ class AntMember : ModelTask() {
                             record(TAG, "✅ 芝麻信用任务已完成，今天不再执行")
                         }
                         if (collectSesame?.value == true) {
-                            deferredTasks.add(async(Dispatchers.IO) {
-                                collectSesame(
-                                    collectSesameWithOneClick?.value == true
-                                )
-                            })
+                            if (hasFlagToday(StatusFlags.FLAG_ANTMEMBER_COLLECT_SESAME_DONE)) {
+                                record(TAG, "⏭️ 今天已处理过芝麻粒领取，跳过执行")
+                            } else {
+                                deferredTasks.add(async(Dispatchers.IO) {
+                                    collectSesame(
+                                        collectSesameWithOneClick?.value == true
+                                    )
+                                })
+                            }
                         }
                     }
 
@@ -1151,10 +1159,10 @@ class AntMember : ModelTask() {
                 TAG, "芝麻信用💳[任务处理完成]#总任务:" + totalTasks + "个, 完成:" + completedTasks + "个, 跳过:" + skippedTasks + "个"
             )
 
-            // 如果所有任务都已完成或跳过（没有剩余可完成任务），关闭开关
-            if (totalTasks > 0 && (completedTasks + skippedTasks) >= totalTasks) {
+            // 若无任务或所有任务都已完成/跳过（没有剩余可完成任务），标记今日完成，避免反复请求触发风控
+            if (totalTasks == 0 || (completedTasks + skippedTasks) >= totalTasks) {
                 setFlagToday(StatusFlags.FLAG_ANTMEMBER_DO_ALL_SESAME_TASK)
-                record(TAG, "芝麻信用💳[已全部完成任务，临时关闭]")
+                record(TAG, if (totalTasks == 0) "芝麻信用💳[无可做任务，今日跳过]" else "芝麻信用💳[已全部完成任务，今日跳过]")
             }
         } catch (t: Throwable) {
             Log.printStackTrace(TAG + "doAllAvailableSesameTask err", t)
@@ -1191,6 +1199,7 @@ class AntMember : ModelTask() {
                                         prize.optInt("zmlNum", prizeObj?.optInt("num", 0) ?: 0)
                                     }
                                     Log.other("芝麻炼金⚗️[每日签到成功]#获得" + num + "粒")
+                                    setFlagToday(StatusFlags.FLAG_ANTMEMBER_ZML_CHECKIN_DONE)
                                 } else {
                                     Log.error("$TAG.doSesameAlchemy", "炼金签到失败:$completeRes")
                                 }
@@ -1199,8 +1208,17 @@ class AntMember : ModelTask() {
                                     "$TAG.doSesameAlchemy.alchemyCheckInComplete", e
                                 )
                             }
+                        } else {
+                            // 非可完成态：当日已完成或不可签到，标记今日处理完成，避免反复请求触发风控
+                            setFlagToday(StatusFlags.FLAG_ANTMEMBER_ZML_CHECKIN_DONE)
                         } // status 为 COMPLETED 时不再重复签到
+                    } else {
+                        // 响应正常但无当日任务信息，按“已处理”兜底，避免重复请求
+                        setFlagToday(StatusFlags.FLAG_ANTMEMBER_ZML_CHECKIN_DONE)
                     }
+                } else {
+                    // 响应正常但无 data，按“已处理”兜底，避免重复请求
+                    setFlagToday(StatusFlags.FLAG_ANTMEMBER_ZML_CHECKIN_DONE)
                 }
             }
         } catch (t: Throwable) {
@@ -1267,6 +1285,22 @@ class AntMember : ModelTask() {
                 return
             }
             val availableCollectList = jo.getJSONArray("creditFeedbackVOS")
+
+            var hasUnclaimed = false
+            for (i in 0..<availableCollectList.length()) {
+                val item = availableCollectList.optJSONObject(i) ?: continue
+                if ("UNCLAIMED" == item.optString("status")) {
+                    hasUnclaimed = true
+                    break
+                }
+            }
+
+            if (!hasUnclaimed) {
+                record(TAG, "芝麻信用💳[当前无待收取芝麻粒]")
+                setFlagToday(StatusFlags.FLAG_ANTMEMBER_COLLECT_SESAME_DONE)
+                return
+            }
+
             if (withOneClick) {
                 delay(2000)
                 jo = JSONObject(AntMemberRpcCall.collectAllCreditFeedback())
@@ -1277,6 +1311,8 @@ class AntMember : ModelTask() {
                     )
                     return
                 }
+                // 一键收取成功：当日兜底，避免反复请求触发风控
+                setFlagToday(StatusFlags.FLAG_ANTMEMBER_COLLECT_SESAME_DONE)
             }
             for (i in 0..<availableCollectList.length()) {
                 jo = availableCollectList.getJSONObject(i)
@@ -1297,6 +1333,11 @@ class AntMember : ModelTask() {
                     }
                 }
                 Log.other("芝麻信用💳[" + title + "]#" + potentialSize + "粒" + (if (withOneClick) "(一键收取)" else ""))
+            }
+
+            if (!withOneClick) {
+                // 非一键：完成一次循环后按“已处理”兜底，避免重复请求触发风控
+                setFlagToday(StatusFlags.FLAG_ANTMEMBER_COLLECT_SESAME_DONE)
             }
         } catch (t: Throwable) {
             Log.printStackTrace("$TAG.collectSesame", t)

@@ -155,6 +155,7 @@ class ApplicationHook {
         // 4. 核心生命周期 Hook
         hookApplicationAttach(packageName)
         hookLauncherResume()
+        hookLoginResume()
         hookServiceLifecycle(apkPath)
 
         HookUtil.hookOtherService(classLoader!!)
@@ -305,6 +306,72 @@ class ApplicationHook {
                 })
         } catch (t: Throwable) {
             printStackTrace(TAG, "Hook Launcher failed", t)
+        }
+    }
+
+    /**
+     * AlipayLogin 的 onResume 在部分版本/场景下比 LauncherActivity 更稳定（reOpenApp 也会显式拉起该 Activity）。
+     * 用于兜底：当出现“需要验证/访问被拒绝”进入离线模式后，用户手动完成验证再回到 App 时可自动退出离线恢复任务链路。
+     */
+    private fun hookLoginResume() {
+        try {
+            XposedHelpers.findAndHookMethod(
+                General.CURRENT_USING_ACTIVITY,
+                classLoader,
+                "onResume",
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam?) {
+                        ApplicationHookConstants.submitEntry("login_onResume") {
+                            if (!init) return@submitEntry
+                            if (!ApplicationHookConstants.isOffline()) return@submitEntry
+
+                            val reason = ApplicationHookConstants.offlineReason
+                            val untilMs = ApplicationHookConstants.offlineUntilMs
+                            val now = System.currentTimeMillis()
+                            val cooldownExpired = untilMs > 0L && now >= untilMs
+                            val shouldRecover = cooldownExpired || when (reason) {
+                                "auth_like",
+                                "system_busy",
+                                "login_timeout",
+                                "network_error_threshold",
+                                "rpc_error_threshold" -> true
+                                else -> false
+                            }
+
+                            if (!shouldRecover) return@submitEntry
+
+                            record(TAG, "检测到 ${reason ?: "unknown"} 离线状态，尝试在 login.onResume 退出离线并恢复任务执行")
+                            ApplicationHookConstants.setOffline(false)
+                            lastExecTime = 0
+
+                            val statusMsg = when (reason) {
+                                "auth_like" -> "✅ 验证已解除，恢复执行"
+                                "system_busy" -> "✅ 已解除系统繁忙/验证态，恢复执行"
+                                "login_timeout" -> "✅ 登录已恢复，继续执行"
+                                else -> "✅ 离线已解除，恢复执行"
+                            }
+                            updateStatusText(statusMsg)
+
+                            val triggerReason =
+                                if (reason == "auth_like") "auth_like_recovered"
+                                else "offline_recovered:${reason ?: "unknown"}"
+                            val dedupeKey =
+                                if (reason == "auth_like") "auth_like_recovered"
+                                else "offline_recovered"
+
+                            ApplicationHookCore.requestExecution(
+                                ApplicationHookConstants.TriggerInfo(
+                                    type = ApplicationHookConstants.TriggerType.ON_RESUME,
+                                    priority = ApplicationHookConstants.TriggerPriority.HIGH,
+                                    reason = triggerReason,
+                                    dedupeKey = dedupeKey
+                                )
+                            )
+                        }
+                    }
+                })
+        } catch (t: Throwable) {
+            printStackTrace(TAG, "Hook Login failed", t)
         }
     }
 
@@ -703,6 +770,19 @@ class ApplicationHook {
         @Synchronized
         private fun initHandler(reason: String): Boolean {
             try {
+                // 启动阶段可能出现 Service.onCreate 与 Launcher.onResume 并发触发 initHandler 的竞态：
+                // - onResume 线程看到 init=false -> 进入 initHandler 等锁
+                // - Service 线程完成初始化并将 init=true
+                // - onResume 获锁后会因 init=true 走 destroyHandler()，导致二次初始化与双 Toast
+                //
+                // 对于“启动类触发”(service_onCreate/onResume)且当前已就绪的场景，直接判定为重复触发并跳过。
+                if (init && isReadyForExec() && (reason == "onResume" || reason == "service_onCreate")) {
+                    pendingInit = false
+                    pendingInitReason = null
+                    record(TAG, "✅ 已初始化完成，忽略重复初始化触发: $reason")
+                    return true
+                }
+
                 if (init) destroyHandler()
 
                 // 初始化广播（RPC 调试 / 手动任务等功能依赖）
