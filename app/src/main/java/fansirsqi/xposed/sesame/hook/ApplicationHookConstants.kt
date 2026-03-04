@@ -344,6 +344,15 @@ object ApplicationHookConstants {
         }
     }
 
+    fun clearPendingTriggers(reason: String? = null) {
+        synchronized(triggerLock) {
+            val before = pendingTriggerCount()
+            pendingTrigger = null
+            triggerQueue.clear()
+            record(TAG, "🧹 trigger cleared${if (reason.isNullOrBlank()) "" else ": $reason"} | before=$before after=0")
+        }
+    }
+
     private fun enqueueLocked(trigger: TriggerInfo) {
         if (triggerQueue.size >= MAX_TRIGGER_QUEUE_SIZE) {
             val dropped = triggerQueue.pollFirst()

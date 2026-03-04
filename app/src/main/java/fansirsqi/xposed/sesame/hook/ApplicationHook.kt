@@ -269,8 +269,27 @@ class ApplicationHook {
                                         lastReopenAt > 0L &&
                                         (now - lastReopenAt) in 0..AUTH_LIKE_AUTO_RECOVER_GUARD_MS
                                 if (autoResumeByReopen) {
-                                    record(TAG, "检测到 auth_like 离线，但 onResume 由 reOpenApp 触发(${now - lastReopenAt}ms)，保持离线等待用户完成验证")
-                                    return@submitEntry
+                                    val offlineEnterAtMs = ApplicationHookConstants.lastOfflineEnterAtMs
+                                    if (authLikeReopenGuardOfflineEnterAtMs != offlineEnterAtMs) {
+                                        authLikeReopenGuardOfflineEnterAtMs = offlineEnterAtMs
+                                        authLikeReopenGuardCountedReopenAtMs = 0L
+                                        authLikeReopenGuardReopenCount = 0
+                                    }
+
+                                    if (lastReopenAt != authLikeReopenGuardCountedReopenAtMs) {
+                                        authLikeReopenGuardCountedReopenAtMs = lastReopenAt
+                                        authLikeReopenGuardReopenCount++
+                                    }
+
+                                    if (authLikeReopenGuardReopenCount <= AUTH_LIKE_AUTO_RECOVER_GUARD_IGNORE_REOPEN_COUNT) {
+                                        record(
+                                            TAG,
+                                            "检测到 auth_like 离线，但 onResume 由 reOpenApp 触发(${now - lastReopenAt}ms)，保持离线等待用户完成验证(#$authLikeReopenGuardReopenCount)"
+                                        )
+                                        return@submitEntry
+                                    }
+
+                                    record(TAG, "检测到 auth_like 离线，但已多次 reOpenApp(#$authLikeReopenGuardReopenCount)，尝试自动恢复执行")
                                 }
                                 val shouldRecover = cooldownExpired || when (reason) {
                                     "auth_like",
@@ -302,6 +321,16 @@ class ApplicationHook {
                                     val dedupeKey =
                                         if (reason == "auth_like") "auth_like_recovered"
                                         else "offline_recovered"
+
+                                    // 离线恢复时，旧的执行链路可能仍在跑（队列里也可能有 pending trigger）。
+                                    // 主动取消当前主任务与子任务，让恢复触发能尽快生效。
+                                    val runningMainTask = mainTask
+                                    if (runningMainTask?.isRunning == true) {
+                                        record(TAG, "🔄 离线恢复：取消当前主任务以便立即恢复执行")
+                                        runningMainTask.stopTask()
+                                    }
+                                    stopAllTask()
+                                    ApplicationHookConstants.clearPendingTriggers("offline_recover")
 
                                     ApplicationHookCore.requestExecution(
                                         ApplicationHookConstants.TriggerInfo(
@@ -349,8 +378,27 @@ class ApplicationHook {
                                     lastReopenAt > 0L &&
                                     (now - lastReopenAt) in 0..AUTH_LIKE_AUTO_RECOVER_GUARD_MS
                             if (autoResumeByReopen) {
-                                record(TAG, "检测到 auth_like 离线，但 login.onResume 由 reOpenApp 触发(${now - lastReopenAt}ms)，保持离线等待用户完成验证")
-                                return@submitEntry
+                                val offlineEnterAtMs = ApplicationHookConstants.lastOfflineEnterAtMs
+                                if (authLikeReopenGuardOfflineEnterAtMs != offlineEnterAtMs) {
+                                    authLikeReopenGuardOfflineEnterAtMs = offlineEnterAtMs
+                                    authLikeReopenGuardCountedReopenAtMs = 0L
+                                    authLikeReopenGuardReopenCount = 0
+                                }
+
+                                if (lastReopenAt != authLikeReopenGuardCountedReopenAtMs) {
+                                    authLikeReopenGuardCountedReopenAtMs = lastReopenAt
+                                    authLikeReopenGuardReopenCount++
+                                }
+
+                                if (authLikeReopenGuardReopenCount <= AUTH_LIKE_AUTO_RECOVER_GUARD_IGNORE_REOPEN_COUNT) {
+                                    record(
+                                        TAG,
+                                        "检测到 auth_like 离线，但 login.onResume 由 reOpenApp 触发(${now - lastReopenAt}ms)，保持离线等待用户完成验证(#$authLikeReopenGuardReopenCount)"
+                                    )
+                                    return@submitEntry
+                                }
+
+                                record(TAG, "检测到 auth_like 离线，但已多次 reOpenApp(#$authLikeReopenGuardReopenCount)，尝试自动恢复执行")
                             }
                             val shouldRecover = cooldownExpired || when (reason) {
                                 "auth_like",
@@ -382,6 +430,16 @@ class ApplicationHook {
                             val dedupeKey =
                                 if (reason == "auth_like") "auth_like_recovered"
                                 else "offline_recovered"
+
+                            // 离线恢复时，旧的执行链路可能仍在跑（队列里也可能有 pending trigger）。
+                            // 主动取消当前主任务与子任务，让恢复触发能尽快生效。
+                            val runningMainTask = mainTask
+                            if (runningMainTask?.isRunning == true) {
+                                record(TAG, "🔄 离线恢复：取消当前主任务以便立即恢复执行")
+                                runningMainTask.stopTask()
+                            }
+                            stopAllTask()
+                            ApplicationHookConstants.clearPendingTriggers("offline_recover")
 
                             ApplicationHookCore.requestExecution(
                                 ApplicationHookConstants.TriggerInfo(
@@ -684,6 +742,17 @@ class ApplicationHook {
         private var lastReOpenAppLaunchAtMs: Long = 0L
 
         private const val AUTH_LIKE_AUTO_RECOVER_GUARD_MS: Long = 1500L
+
+        private const val AUTH_LIKE_AUTO_RECOVER_GUARD_IGNORE_REOPEN_COUNT: Int = 1
+
+        @Volatile
+        private var authLikeReopenGuardOfflineEnterAtMs: Long = 0L
+
+        @Volatile
+        private var authLikeReopenGuardCountedReopenAtMs: Long = 0L
+
+        @Volatile
+        private var authLikeReopenGuardReopenCount: Int = 0
 
         @Volatile
         var nextExecutionTime: Long = 0
