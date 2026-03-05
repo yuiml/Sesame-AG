@@ -3,6 +3,7 @@ package fansirsqi.xposed.sesame.hook
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.maps.IdMapManager
 import fansirsqi.xposed.sesame.util.maps.VipDataIdMap
+import org.json.JSONArray
 import org.json.JSONObject
 
 object TokenHooker {
@@ -52,21 +53,14 @@ object TokenHooker {
      */
     private fun handleAntFarmToken(userId: String, paramsJson: JSONObject) {
         try {
-            val positionRequest = paramsJson.optJSONObject("positionRequest") ?: run {
+            val positionRequest = extractPositionRequest(paramsJson) ?: run {
                 Log.error(TAG, "未找到 positionRequest")
                 return
             }
 
-            val referInfo = positionRequest.optJSONObject("referInfo") ?: run {
-                Log.error(TAG, "未找到 referInfo")
-                return
-            }
-
-            val token = referInfo.optString("referToken", "")
-            if (token.isEmpty()) {
-                Log.error(TAG, "referToken 为空")
-                return
-            }
+            val referInfo = positionRequest.optJSONObject("referInfo")
+            val token = referInfo?.optString("referToken").orEmpty()
+            if (token.isBlank()) return
 
             // 保存逻辑
             val vipData = IdMapManager.getInstance(VipDataIdMap::class.java)
@@ -82,5 +76,26 @@ object TokenHooker {
         } catch (e: Exception) {
             Log.error(TAG, "解析 referToken 异常: ${e.message}")
         }
+    }
+
+    /**
+     * xlightPlugin 的入参结构在不同版本/场景下会有差异：
+     * - 可能是 positionRequest 直接挂在根对象
+     * - 也可能在 requestData[0].positionRequest
+     */
+    private fun extractPositionRequest(paramsJson: JSONObject): JSONObject? {
+        paramsJson.optJSONObject("positionRequest")?.let { return it }
+
+        val requestData = paramsJson.opt("requestData")
+        when (requestData) {
+            is JSONObject -> requestData.optJSONObject("positionRequest")?.let { return it }
+            is JSONArray -> {
+                for (i in 0 until requestData.length()) {
+                    val item = requestData.optJSONObject(i) ?: continue
+                    item.optJSONObject("positionRequest")?.let { return it }
+                }
+            }
+        }
+        return null
     }
 }

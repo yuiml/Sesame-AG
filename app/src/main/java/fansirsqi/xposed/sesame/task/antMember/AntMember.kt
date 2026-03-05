@@ -2100,9 +2100,19 @@ class AntMember : ModelTask() {
             val feedbackJo = JSONObject(queryFeedbackRes)
             if (ResChecker.checkRes(TAG, feedbackJo)) {
                 val feedbackList = feedbackJo.optJSONArray("creditFeedbackVOS")
+                var unclaimedCount = 0
                 if (feedbackList != null && feedbackList.length() > 0) {
+                    for (i in 0 until feedbackList.length()) {
+                        val item = feedbackList.optJSONObject(i) ?: continue
+                        if ("UNCLAIMED" == item.optString("status")) {
+                            unclaimedCount += 1
+                        }
+                    }
+                }
+
+                if (unclaimedCount > 0) {
                     record(
-                        TAG, "芝麻炼金⚗️[发现" + feedbackList.length() + "个待收取项，执行一键收取]"
+                        TAG, "芝麻炼金⚗️[发现" + unclaimedCount + "个待收取项，执行一键收取]"
                     )
 
                     // 4.2 执行一键收取

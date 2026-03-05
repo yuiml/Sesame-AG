@@ -878,9 +878,14 @@ class AntOrchard : ModelTask() {
                 val name = UserMap.getMaskName(uid)
 
                 if (!ResChecker.checkRes(TAG, str)) {
-                    val code = jsonObject.getString("code")
+                    val code = jsonObject.optString("code")
                     if (code == "600000027") {
                         Log.record(TAG, "农场助力💪今日助力他人次数上限")
+                        Status.antOrchardAssistFriendToday()
+                        return
+                    }
+                    if (code == "600000031") {
+                        Log.record(TAG, "农场助力💪邀请过于频繁，停止今日助力以避免风控")
                         Status.antOrchardAssistFriendToday()
                         return
                     }
