@@ -32,6 +32,9 @@ object StatusFlags {
     // AntMember（会员频道 / 积分）
     // ============================================================
 
+    /** 今日是否已处理「会员签到」 */
+    const val FLAG_ANTMEMBER_MEMBER_SIGN_DONE: String = "AntMember::memberSignDone"
+
     /** 是否已执行「领取所有可做芝麻任务」 */
     const val FLAG_ANTMEMBER_DO_ALL_SESAME_TASK: String = "AntMember::doAllAvailableSesameTask"
 
@@ -53,6 +56,21 @@ object StatusFlags {
 
     /** 信用 2101：图鉴章节任务是否全部完成 */
     const val FLAG_CREDIT2101_CHAPTER_TASK_DONE: String = "FLAG_Credit2101_ChapterTask_Done"
+
+    /** 商家服务：每日签到 */
+    const val FLAG_ANTMEMBER_MERCHANT_SIGN_DONE: String = "AntMember::merchantSignDone"
+
+    /** 商家服务：开门打卡签到（06:00-12:00） */
+    const val FLAG_ANTMEMBER_MERCHANT_KMDK_SIGNIN_DONE: String = "AntMember::merchantKmdkSignInDone"
+
+    /** 商家服务：开门打卡报名 */
+    const val FLAG_ANTMEMBER_MERCHANT_KMDK_SIGNUP_DONE: String = "AntMember::merchantKmdkSignUpDone"
+
+    /** 黄金票：今日是否已处理签到 */
+    const val FLAG_ANTMEMBER_GOLD_TICKET_SIGN_DONE: String = "AntMember::goldTicketSignDone"
+
+    /** 黄金票：今日是否已成功提取/兑换 */
+    const val FLAG_ANTMEMBER_GOLD_TICKET_CONSUME_DONE: String = "AntMember::goldTicketConsumeDone"
 
     // ============================================================
     // 运动任务（AntSports）
