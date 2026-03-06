@@ -1849,7 +1849,9 @@ class AntForest : ModelTask(), EnergyCollectCallback {
         userHomeObj: JSONObject,
         serverTime: Long,
         availableBubbles: MutableList<Long>,
-        userId: String?
+        userId: String?,
+        collectWaitingTasks: Boolean = true,
+        logSummary: Boolean = true
     ) {
         // 1. 获取能量球数组（兼容组队模式）
         val jaBubbles = if (isTeam(userHomeObj)) {
@@ -1911,6 +1913,9 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 }
 
                 CollectStatus.WAITING -> {
+                    if (!collectWaitingTasks) {
+                        continue
+                    }
                     if (bubbleCount <= 0) {
                         Log.record(TAG, "跳过数量为[$bubbleId]的等待能量球的蹲点任务")
                         continue
@@ -1970,7 +1975,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
 
         // 5. 打印调试信息
         // 只有当有可收取的球，或者有等待的球时才打印，避免刷屏
-        if (availableBubbles.isNotEmpty() || waitingBubblesCount > 0) {
+        if (logSummary && (availableBubbles.isNotEmpty() || waitingBubblesCount > 0)) {
             Log.record(TAG, "[$userName] 可收集能量球: ${availableBubbles.size}个")
             if (waitingBubblesCount > 0) {
                 Log.record(TAG, "[$userName] 等待成熟能量球: ${waitingBubblesCount}个")
@@ -5346,7 +5351,14 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             // 提取可收取的能量球ID
             val availableBubbles: MutableList<Long> = ArrayList()
             val queryServerTime = queryResult.optLong("now", System.currentTimeMillis())
-            extractBubbleInfo(queryResult, queryServerTime, availableBubbles, userId)
+            extractBubbleInfo(
+                queryResult,
+                queryServerTime,
+                availableBubbles,
+                userId,
+                collectWaitingTasks = false,
+                logSummary = false
+            )
 
             if (availableBubbles.isEmpty()) {
                 return CollectResult(

@@ -3,6 +3,7 @@ package fansirsqi.xposed.sesame.hook
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XC_MethodReplacement
 import de.robv.android.xposed.XposedHelpers
+import fansirsqi.xposed.sesame.data.Config
 import fansirsqi.xposed.sesame.data.General
 import fansirsqi.xposed.sesame.entity.UserEntity
 import fansirsqi.xposed.sesame.util.Log
@@ -259,14 +260,18 @@ object HookUtil {
 
     fun hookUser(classLoader: ClassLoader) {
         runCatching {
-            UserMap.unload()
+            val previousUsers = UserMap.getUserMap().toMap()
             val selfId = getUserId(classLoader)
             UserMap.setCurrentUserId(selfId) //有些地方要用到 要set一下
             val clsUserIndependentCache = classLoader.loadClass("com.alipay.mobile.socialcommonsdk.bizdata.UserIndependentCache")
             val clsAliAccountDaoOp = classLoader.loadClass("com.alipay.mobile.socialcommonsdk.bizdata.contact.data.AliAccountDaoOp")
             val aliAccountDaoOp = XposedHelpers.callStaticMethod(clsUserIndependentCache, "getCacheObj", clsAliAccountDaoOp)
             val allFriends = XposedHelpers.callMethod(aliAccountDaoOp, "getAllFriends") as? List<*> ?: emptyList<Any>()
-            if (allFriends.isEmpty()) return
+            if (allFriends.isEmpty()) {
+                Log.record(TAG, "好友缓存为空，跳过刷新并保留旧映射")
+                return
+            }
+            UserMap.unload()
             val friendClass = allFriends.firstOrNull()?.javaClass ?: return
             val userIdField = XposedHelpers.findField(friendClass, "userId")
             val accountField = XposedHelpers.findField(friendClass, "account")
@@ -275,6 +280,8 @@ object HookUtil {
             val remarkNameField = XposedHelpers.findField(friendClass, "remarkName")
             val friendStatusField = XposedHelpers.findField(friendClass, "friendStatus")
             var selfEntity: UserEntity? = null
+            val syncedUserIds = LinkedHashSet<String>()
+            val invalidFriendIds = LinkedHashSet<String>()
             allFriends.forEach { userObject ->
                 runCatching {
                     val userId = userIdField.get(userObject) as? String
@@ -284,6 +291,12 @@ object HookUtil {
                     val remarkName = remarkNameField.get(userObject) as? String
                     val friendStatus = friendStatusField.get(userObject) as? Int
                     val userEntity = UserEntity(userId, account, friendStatus, name, nickName, remarkName)
+                    if (!userId.isNullOrEmpty()) {
+                        syncedUserIds.add(userId)
+                        if (userId != selfId && friendStatus != 1) {
+                            invalidFriendIds.add(userId)
+                        }
+                    }
                     if (userId == selfId) selfEntity = userEntity
                     UserMap.add(userEntity)
                 }.onFailure {
@@ -292,8 +305,24 @@ object HookUtil {
                 }
             }
 
-            UserMap.saveSelf(selfEntity)
+            val removedUserIds = previousUsers.keys
+                .filter { it != selfId && !syncedUserIds.contains(it) }
+                .toSet()
+            val invalidSelectionIds = LinkedHashSet<String>().apply {
+                addAll(removedUserIds)
+                addAll(invalidFriendIds)
+            }
+            val removedSelectionCount = Config.removeInvalidFriendSelections(
+                invalidSelectionIds,
+                selfId,
+                autoSave = false
+            )
+
+            selfEntity?.let { UserMap.saveSelf(it) }
             UserMap.save(selfId)
+            if (removedSelectionCount > 0) {
+                Config.save(selfId, true)
+            }
             Log.record(TAG, "userCache load scuess !")
         }.onFailure {
             Log.printStackTrace(TAG, "hookUser 失败", it)

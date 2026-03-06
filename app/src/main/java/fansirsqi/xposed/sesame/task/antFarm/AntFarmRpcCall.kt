@@ -1010,7 +1010,10 @@ object AntFarmRpcCall {
 
     @JvmStatic
     fun drawGameCenterAward(): String {
-        return drawGameCenterAward(1)
+        return requestString(
+            "com.alipay.antfarm.drawGameCenterAward",
+            "[{\"requestType\":\"NORMAL\",\"sceneCode\":\"ANTFARM\",\"source\":\"H5\",\"version\":\"$VERSION\"}]"
+        )
     }
 
     /**
@@ -1020,6 +1023,9 @@ object AntFarmRpcCall {
      */
     @JvmStatic
     fun drawGameCenterAward(drawTimes: Int): String {
+        if (drawTimes <= 1) {
+            return drawGameCenterAward()
+        }
         return requestString(
             "com.alipay.antfarm.drawGameCenterAward",
             "[{\"drawTimes\":$drawTimes,\"requestType\":\"NORMAL\",\"sceneCode\":\"ANTFARM\",\"source\":\"H5\",\"version\":\"$VERSION\"}]"

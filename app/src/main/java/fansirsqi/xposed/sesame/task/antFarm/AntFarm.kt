@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.ObjectMapper
+import fansirsqi.xposed.sesame.data.Config
 import fansirsqi.xposed.sesame.data.Status
 import fansirsqi.xposed.sesame.entity.AlipayUser
 import fansirsqi.xposed.sesame.entity.MapperEntity
@@ -2824,8 +2825,9 @@ class AntFarm : ModelTask() {
                             break
                         }
                     }
-                }else{
-                    val username=UserMap.getMaskName(userId)
+                } else {
+                    pruneInvalidFriendSelection(userId, jo, "帮好友喂鸡")
+                    val username = UserMap.getMaskName(userId)
                     Log.error(TAG, "😞进入用户 $userId[$username] 的庄园失败> $jo")
                 }
             }
@@ -3291,6 +3293,8 @@ class AntFarm : ModelTask() {
                     }
                     delay(800L)
                 }
+            } else {
+                pruneInvalidFriendSelection(userId, jo, "送麦子")
             }
         } catch (e: CancellationException) {
             // 协程取消异常必须重新抛出，不能吞掉
@@ -3300,6 +3304,26 @@ class AntFarm : ModelTask() {
             Log.printStackTrace(TAG, "visitFriend err:",t)
         }
         return visitedTimes
+    }
+
+    private fun pruneInvalidFriendSelection(userId: String?, response: JSONObject?, sceneName: String) {
+        if (userId.isNullOrEmpty() || response == null || userId == UserMap.currentUid) {
+            return
+        }
+        val resultCode = response.optString("resultCode")
+        val memo = response.optString("memo")
+        if (resultCode != "302" && !memo.contains("非好友")) {
+            return
+        }
+        val removedCount = Config.removeInvalidFriendSelections(
+            setOf(userId),
+            UserMap.currentUid,
+            autoSave = false
+        )
+        if (removedCount > 0) {
+            Config.save(UserMap.currentUid, true)
+            Log.record(TAG, "$sceneName 检测到[$userId]已非好友，已自动清理 $removedCount 项相关配置")
+        }
     }
 
     private fun acceptGift() {
@@ -3944,10 +3968,10 @@ class AntFarm : ModelTask() {
                 return
             }
 
-            val drawRights = jo.optJSONObject("gameCenterDrawRights")
-            val legacyDrawActivity = jo.optJSONObject("gameDrawAwardActivity")
-            if (drawRights != null || legacyDrawActivity != null) {
-                val currentRights = drawRights ?: legacyDrawActivity ?: return
+            val currentRights = findFirstObjectByKey(jo, "gameCenterDrawRights")
+                ?: findFirstObjectByKey(jo, "gameDrawAwardActivity")
+                ?: findFirstObjectByKey(jo, "gameEntryInfo")
+            if (currentRights != null) {
 
                 // 1. 处理当前可开的宝箱 (对应你说的 canUse)
                 var quotaCanUse = currentRights.optInt(
@@ -3957,19 +3981,20 @@ class AntFarm : ModelTask() {
                 if (quotaCanUse > 0) {
                     Log.record(TAG, "当前有 $quotaCanUse 个宝箱待开启...")
                     while (quotaCanUse > 0) {
-                        val drawResponse = JSONObject(AntFarmRpcCall.drawGameCenterAward(1))
+                        val drawResponse = JSONObject(AntFarmRpcCall.drawGameCenterAward())
                         val drawRes = drawResponse.optJSONObject("resData") ?: drawResponse
                         if (drawRes.optBoolean("success", drawResponse.optBoolean("success"))) {
                             // 领取成功后，更新剩余可领取的 quotaCanUse
-                            val nextRights = drawRes.optJSONObject("gameCenterDrawRights")
-                                ?: drawRes.optJSONObject("gameDrawAwardActivity")
+                            val nextRights = findFirstObjectByKey(drawRes, "gameCenterDrawRights")
+                                ?: findFirstObjectByKey(drawRes, "gameDrawAwardActivity")
+                                ?: findFirstObjectByKey(drawRes, "gameEntryInfo")
                             quotaCanUse = nextRights?.optInt(
                                 "quotaCanUse",
                                 nextRights.optInt("canUseTimes", drawRes.optInt("drawRightsTimes", quotaCanUse - 1))
                             ) ?: (quotaCanUse - 1)
 
-                            val awardList = drawRes.optJSONArray("gameCenterDrawAwardList")
-                                ?: drawRes.optJSONArray("drawAwardList")
+                            val awardList = findFirstArrayByKey(drawRes, "gameCenterDrawAwardList")
+                                ?: findFirstArrayByKey(drawRes, "drawAwardList")
                             val awardStrings = mutableListOf<String>()
                             if (awardList != null) {
                                 for (i in 0 until awardList.length()) {
@@ -4002,12 +4027,60 @@ class AntFarm : ModelTask() {
                 } else if (remainToTask <= 0) {
                    // Log.record(TAG, "今日 $limit 个金蛋任务已全部满额")
                 }
+            } else {
+                Log.record(TAG, "queryGameList 未找到开宝箱权益字段，跳过开宝箱流程")
             }
 
         } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "drawGameCenterAward 流程异常", t)
+        }
+    }
+
+    private fun findFirstObjectByKey(source: Any?, targetKey: String): JSONObject? {
+        return when (source) {
+            is JSONObject -> {
+                source.optJSONObject(targetKey)?.let { return it }
+                val keys = source.keys()
+                while (keys.hasNext()) {
+                    val child = source.opt(keys.next())
+                    findFirstObjectByKey(child, targetKey)?.let { return it }
+                }
+                null
+            }
+
+            is JSONArray -> {
+                for (index in 0 until source.length()) {
+                    findFirstObjectByKey(source.opt(index), targetKey)?.let { return it }
+                }
+                null
+            }
+
+            else -> null
+        }
+    }
+
+    private fun findFirstArrayByKey(source: Any?, targetKey: String): JSONArray? {
+        return when (source) {
+            is JSONObject -> {
+                source.optJSONArray(targetKey)?.let { return it }
+                val keys = source.keys()
+                while (keys.hasNext()) {
+                    val child = source.opt(keys.next())
+                    findFirstArrayByKey(child, targetKey)?.let { return it }
+                }
+                null
+            }
+
+            is JSONArray -> {
+                for (index in 0 until source.length()) {
+                    findFirstArrayByKey(source.opt(index), targetKey)?.let { return it }
+                }
+                null
+            }
+
+            else -> null
         }
     }
 

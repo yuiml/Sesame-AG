@@ -11,6 +11,8 @@ import fansirsqi.xposed.sesame.model.ModelConfig
 import fansirsqi.xposed.sesame.model.ModelField
 import fansirsqi.xposed.sesame.model.ModelFields
 import fansirsqi.xposed.sesame.model.Model
+import fansirsqi.xposed.sesame.model.modelFieldExt.SelectAndCountModelField
+import fansirsqi.xposed.sesame.model.modelFieldExt.SelectModelField
 import fansirsqi.xposed.sesame.task.TaskCommon
 import fansirsqi.xposed.sesame.util.Files
 import fansirsqi.xposed.sesame.util.JsonUtil
@@ -181,6 +183,72 @@ class Config private constructor() {
                 Log.runtime(TAG, "保存用户配置失败")
                 false
             }
+        }
+
+        /**
+         * 从所有选择型配置中移除失效好友。
+         *
+         * @param invalidUserIds 需要移除的用户ID集合
+         * @param selfUserId     当前用户ID，默认不移除自己
+         * @param autoSave       是否自动保存配置
+         * @return 移除的配置项数量
+         */
+        @JvmStatic
+        @Synchronized
+        fun removeInvalidFriendSelections(
+            invalidUserIds: Set<String>,
+            selfUserId: String? = UserMap.currentUid,
+            autoSave: Boolean = true
+        ): Int {
+            if (!INSTANCE.isInit || invalidUserIds.isEmpty()) {
+                return 0
+            }
+
+            var removedCount = 0
+
+            for ((modelCode, modelFields) in INSTANCE.modelFieldsMap) {
+                for ((fieldCode, modelField) in modelFields) {
+                    when (modelField) {
+                        is SelectModelField -> {
+                            val selectedIds = modelField.value ?: continue
+                            val iterator = selectedIds.iterator()
+                            while (iterator.hasNext()) {
+                                val selectedId = iterator.next() ?: continue
+                                if (selectedId == selfUserId || !invalidUserIds.contains(selectedId)) {
+                                    continue
+                                }
+                                iterator.remove()
+                                removedCount++
+                                Log.record(TAG, "移除失效好友配置[$modelCode.$fieldCode][$selectedId]")
+                            }
+                        }
+
+                        is SelectAndCountModelField -> {
+                            val selectedMap = modelField.value ?: continue
+                            val invalidKeys = selectedMap.keys
+                                .filterNotNull()
+                                .filter { it != selfUserId && invalidUserIds.contains(it) }
+                            if (invalidKeys.isEmpty()) {
+                                continue
+                            }
+                            invalidKeys.forEach { invalidKey ->
+                                if (selectedMap.remove(invalidKey) != null) {
+                                    removedCount++
+                                    Log.record(TAG, "移除失效好友配置[$modelCode.$fieldCode][$invalidKey]")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (removedCount > 0) {
+                Log.record(TAG, "共清理失效好友配置 $removedCount 项")
+                if (autoSave) {
+                    save(selfUserId, true)
+                }
+            }
+            return removedCount
         }
 
         /**

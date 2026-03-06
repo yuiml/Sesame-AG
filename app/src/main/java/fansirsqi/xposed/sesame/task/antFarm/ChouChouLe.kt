@@ -456,10 +456,11 @@ class ChouChouLe {
                 )
             )
             if (!ResChecker.checkRes(TAG, jo)) {
-                return false
+                Log.record(TAG, "IP抽抽乐新版活动查询失败，切换旧版接口重试")
+                return handleIpDrawLegacy()
             }
 
-            val activity = jo.optJSONObject("drawMachineActivity") ?: return true
+            val activity = jo.optJSONObject("drawMachineActivity") ?: return handleIpDrawLegacy()
             val activityId = activity.optString("activityId")
             val endTime = activity.optLong("endTime", 0)
             if (endTime > 0 && System.currentTimeMillis() > endTime) {
@@ -468,6 +469,9 @@ class ChouChouLe {
             }
 
             var remainingTimes = jo.optInt("drawTimes", 0)
+            if (remainingTimes <= 0) {
+                return handleIpDrawLegacy()
+            }
             var allSuccess = true
             Log.record(TAG, "IP抽抽乐剩余次数: $remainingTimes")
 
@@ -476,7 +480,12 @@ class ChouChouLe {
                 Log.record(TAG, "执行 IP 抽抽乐 $batchCount 连抽...")
 
                 val response = AntFarmRpcCall.drawMachineIP(batchCount)
-                allSuccess = allSuccess and drawPrize("IP抽抽乐", response)
+                val batchSuccess = drawPrize("IP抽抽乐", response)
+                if (!batchSuccess) {
+                    Log.record(TAG, "IP抽抽乐连抽失败，切换旧版单抽流程")
+                    return handleIpDrawLegacy()
+                }
+                allSuccess = allSuccess and batchSuccess
 
                 remainingTimes -= batchCount
                 if (remainingTimes > 0) {
@@ -504,10 +513,11 @@ class ChouChouLe {
                 )
             )
             if (!ResChecker.checkRes(TAG, jo)) {
-                return false
+                Log.record(TAG, "日常抽抽乐新版活动查询失败，切换旧版接口重试")
+                return handleDailyDrawLegacy()
             }
 
-            val activity = jo.optJSONObject("drawMachineActivity") ?: return true
+            val activity = jo.optJSONObject("drawMachineActivity") ?: return handleDailyDrawLegacy()
             val endTime = activity.optLong("endTime", 0)
             if (endTime > 0 && System.currentTimeMillis() > endTime) {
                 Log.record(TAG, "该[${activity.optString("activityId")}]抽奖活动已结束")
@@ -515,6 +525,9 @@ class ChouChouLe {
             }
 
             var remainingTimes = jo.optInt("drawTimes", 0)
+            if (remainingTimes <= 0) {
+                return handleDailyDrawLegacy()
+            }
             var allSuccess = true
 
             Log.record(TAG, "日常抽抽乐剩余次数: $remainingTimes")
@@ -524,7 +537,12 @@ class ChouChouLe {
                 Log.record(TAG, "执行日常抽抽乐 $batchCount 连抽...")
 
                 val response = AntFarmRpcCall.drawMachineDaily(batchCount)
-                allSuccess = allSuccess and drawPrize("日常抽抽乐", response)
+                val batchSuccess = drawPrize("日常抽抽乐", response)
+                if (!batchSuccess) {
+                    Log.record(TAG, "日常抽抽乐连抽失败，切换旧版单抽流程")
+                    return handleDailyDrawLegacy()
+                }
+                allSuccess = allSuccess and batchSuccess
 
                 remainingTimes -= batchCount
                 if (remainingTimes > 0) {
@@ -535,6 +553,81 @@ class ChouChouLe {
         } catch (t: Throwable) {
             Log.printStackTrace("handleDailyDraw err:", t)
             return false
+        }
+    }
+
+    private fun handleIpDrawLegacy(): Boolean {
+        return try {
+            val jo = JSONObject(AntFarmRpcCall.queryDrawMachineActivity())
+            if (!ResChecker.checkRes(TAG, jo)) {
+                false
+            } else {
+                val activity = jo.optJSONObject("drawMachineActivity") ?: return true
+                val endTime = activity.optLong("endTime", 0)
+                if (endTime > 0 && System.currentTimeMillis() > endTime) {
+                    Log.record(TAG, "该[${activity.optString("activityId")}]抽奖活动已结束")
+                    return true
+                }
+
+                var remainingTimes = jo.optInt("drawTimes", 0)
+                var allSuccess = true
+                while (remainingTimes > 0) {
+                    val drawSuccess = drawPrize("IP抽抽乐", AntFarmRpcCall.drawMachine())
+                    allSuccess = allSuccess and drawSuccess
+                    if (!drawSuccess) {
+                        break
+                    }
+                    remainingTimes--
+                    if (remainingTimes > 0) {
+                        GlobalThreadPools.sleepCompat(1500L)
+                    }
+                }
+                allSuccess
+            }
+        } catch (t: Throwable) {
+            Log.printStackTrace("handleIpDrawLegacy err:", t)
+            false
+        }
+    }
+
+    private fun handleDailyDrawLegacy(): Boolean {
+        return try {
+            val jo = JSONObject(AntFarmRpcCall.enterDrawMachine())
+            if (!ResChecker.checkRes(TAG, jo)) {
+                false
+            } else {
+                val userInfo = jo.optJSONObject("userInfo") ?: return true
+                val drawActivityInfo = jo.optJSONObject("drawActivityInfo") ?: return true
+                val endTime = drawActivityInfo.optLong("endTime", 0)
+                if (endTime > 0 && System.currentTimeMillis() > endTime) {
+                    Log.record(TAG, "该[${drawActivityInfo.optString("activityId")}]抽奖活动已结束")
+                    return true
+                }
+
+                var remainingTimes = userInfo.optInt("leftDrawTimes", 0)
+                val activityId = drawActivityInfo.optString("activityId")
+                var allSuccess = true
+                while (remainingTimes > 0) {
+                    val response = if (activityId.isBlank() || activityId == "null") {
+                        AntFarmRpcCall.DrawPrize()
+                    } else {
+                        AntFarmRpcCall.DrawPrize(activityId)
+                    }
+                    val drawSuccess = drawPrize("日常抽抽乐", response)
+                    allSuccess = allSuccess and drawSuccess
+                    if (!drawSuccess) {
+                        break
+                    }
+                    remainingTimes--
+                    if (remainingTimes > 0) {
+                        GlobalThreadPools.sleepCompat(1500L)
+                    }
+                }
+                allSuccess
+            }
+        } catch (t: Throwable) {
+            Log.printStackTrace("handleDailyDrawLegacy err:", t)
+            false
         }
     }
 
