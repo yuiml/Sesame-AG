@@ -1984,11 +1984,12 @@ class AntFarm : ModelTask() {
             val taskStatus = task.optString("taskStatus")
             val taskId = task.optString("taskId")
             val bizKey = task.optString("bizKey")
+            val awardType = task.optString("awardType")
 
             if (TaskStatus.RECEIVED.name == taskStatus) continue
 
             if (TaskStatus.FINISHED.name == taskStatus) {
-                AntFarmRpcCall.receiveFarmTaskAward(taskId)
+                AntFarmRpcCall.receiveFarmTaskAward(taskId, awardType)
                 return true
             }
 
@@ -2296,6 +2297,7 @@ class AntFarm : ModelTask() {
                         val taskTitle = task.optString("title", "未知任务")
                         val awardCount = task.optInt("awardCount", 0)
                         val taskId = task.optString("taskId")
+                        val awardType = task.optString("awardType")
 
                         if (TaskStatus.FINISHED.name == taskStatus) {
                             // 领取前先同步一次食槽状态，避免边界误差
@@ -2339,7 +2341,7 @@ class AntFarm : ModelTask() {
                                     }
                                 }
                             }
-                            val receiveTaskAwardjo = JSONObject(AntFarmRpcCall.receiveFarmTaskAward(taskId))
+                            val receiveTaskAwardjo = JSONObject(AntFarmRpcCall.receiveFarmTaskAward(taskId, awardType))
                             if (ResChecker.checkRes(TAG + "领取庄园任务奖励失败:", receiveTaskAwardjo)) {
                                 add2FoodStock(awardCount)
                                 Log.farm("收取庄园任务奖励[$taskTitle] # ${awardCount}g (剩余容量: ${foodStockLimit - foodStock}g)")
@@ -3959,6 +3961,12 @@ class AntFarm : ModelTask() {
 
     private suspend fun drawGameCenterAward() {
         try {
+            runCatching {
+                val warmup = JSONObject(AntFarmRpcCall.refinedOperation("ENTERSELFWITHOUTPOP"))
+                if (!warmup.optBoolean("success", false) && warmup.optString("resultCode") != "100") {
+                    Log.record(TAG, "庄园游戏中心预热失败，继续尝试查询游戏列表")
+                }
+            }
             val response = AntFarmRpcCall.queryGameList()
             val responseJo = JSONObject(response)
             val jo = responseJo.optJSONObject("resData") ?: responseJo
@@ -3981,7 +3989,8 @@ class AntFarm : ModelTask() {
                 if (quotaCanUse > 0) {
                     Log.record(TAG, "当前有 $quotaCanUse 个宝箱待开启...")
                     while (quotaCanUse > 0) {
-                        val drawResponse = JSONObject(AntFarmRpcCall.drawGameCenterAward())
+                        val batchDrawCount = quotaCanUse.coerceAtMost(10)
+                        val drawResponse = JSONObject(AntFarmRpcCall.drawGameCenterAward(batchDrawCount))
                         val drawRes = drawResponse.optJSONObject("resData") ?: drawResponse
                         if (drawRes.optBoolean("success", drawResponse.optBoolean("success"))) {
                             // 领取成功后，更新剩余可领取的 quotaCanUse
@@ -3990,8 +3999,11 @@ class AntFarm : ModelTask() {
                                 ?: findFirstObjectByKey(drawRes, "gameEntryInfo")
                             quotaCanUse = nextRights?.optInt(
                                 "quotaCanUse",
-                                nextRights.optInt("canUseTimes", drawRes.optInt("drawRightsTimes", quotaCanUse - 1))
-                            ) ?: (quotaCanUse - 1)
+                                nextRights.optInt(
+                                    "canUseTimes",
+                                    drawRes.optInt("drawRightsTimes", quotaCanUse - batchDrawCount)
+                                )
+                            ) ?: (quotaCanUse - batchDrawCount)
 
                             val awardList = findFirstArrayByKey(drawRes, "gameCenterDrawAwardList")
                                 ?: findFirstArrayByKey(drawRes, "drawAwardList")
@@ -4938,6 +4950,7 @@ class AntFarm : ModelTask() {
                     list.add(AntFarmFamilyOption("feedFamilyAnimal", "帮喂小鸡"))
                     list.add(AntFarmFamilyOption("deliverMsgSend", "道早安"))
                     list.add(AntFarmFamilyOption("familyClaimReward", "领取奖励"))
+                    list.add(AntFarmFamilyOption("familyDonateStep", "运动公益捐步"))
                     list.add(AntFarmFamilyOption("inviteFriendVisitFamily", "好友分享"))
                     list.add(AntFarmFamilyOption("assignRights", "使用顶梁柱特权"))
                     list.add(AntFarmFamilyOption("familyDrawInfo", "开扭蛋"))

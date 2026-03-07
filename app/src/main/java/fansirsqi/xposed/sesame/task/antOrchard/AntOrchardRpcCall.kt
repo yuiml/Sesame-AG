@@ -1,6 +1,7 @@
 package fansirsqi.xposed.sesame.task.antOrchard
 
 import fansirsqi.xposed.sesame.hook.RequestManager
+import fansirsqi.xposed.sesame.util.maps.UserMap
 
 object AntOrchardRpcCall {
     private const val VERSION = "20251209.01"
@@ -203,6 +204,67 @@ object AntOrchardRpcCall {
         return RequestManager.requestString(
             "com.alipay.antiep.achieveBeShareP2P",
             "[{\"requestType\":\"NORMAL\",\"sceneCode\":\"ANTFARM_ORCHARD_SHARE_P2P\",\"shareId\":\"$shareId\",\"source\":\"share\",\"version\":\"$VERSION\"}]"
+        )
+    }
+
+    fun refinedOperation(
+        actionId: String = "ENTERORCHARD",
+        source: String = "yqs_tiyanjin"
+    ): String {
+        return RequestManager.requestString(
+            "com.alipay.antorchard.refinedOperation",
+            "[{\"actionId\":\"$actionId\",\"inHomepage\":true,\"requestType\":\"NORMAL\",\"sceneCode\":\"ORCHARD\",\"source\":\"$source\",\"version\":\"$VERSION\"}]"
+        )
+    }
+
+    fun queryYebExpGoldMain(
+        queryComplete: Boolean = false,
+        taskId: String? = null
+    ): String {
+        val taskPayload = if (taskId.isNullOrBlank()) {
+            """{"downgrade":false,"queryComplete":$queryComplete,"strategyCode":"YEB_TRIAL_ASSET_TASK_BLOCK_REC"}"""
+        } else {
+            """{"downgrade":false,"queryComplete":$queryComplete,"startTime":${System.currentTimeMillis()},"strategyCode":"YEB_TRIAL_ASSET_TASK_BLOCK_REC","taskId":"$taskId"}"""
+        }
+        return RequestManager.requestString(
+            "com.alipay.yebscenebff.needle.yebExpGold.queryMain",
+            """[{"chInfo":"ch_url-https://render.alipay.com/p/yuyan/180020010001282160/index.html","signIn":{"daysOfQuerySignInData":21,"displaySignInTextList":[{"value":"持"},{"value":"续"},{"value":"签"},{"value":"到"},{"value":"可"},{"value":"领"},{"value":""}],"downgrade":false,"todayRedDotText":"戳这里","tomorrowRedDotText":""},"task":$taskPayload}]"""
+        )
+    }
+
+    fun completeYebExpGoldTask(
+        appletId: String,
+        taskId: String
+    ): String {
+        return RequestManager.requestString(
+            "com.alipay.yebscenebff.promosdk.index.forward",
+            """[{"params":{"appletId":"$appletId","taskId":"$taskId","version":2},"path":"task.complete"}]"""
+        )
+    }
+
+    fun queryYebTrialAsset(): String {
+        return RequestManager.requestString(
+            "alipay.yebprod.promo.yebTrialAsset",
+            "[null]"
+        )
+    }
+
+    fun exchangeYebExpGold(
+        campId: String,
+        prizeId: String,
+        exchangeAmount: String
+    ): String {
+        val bizOrderNo = "${UserMap.currentUid.orEmpty()}${System.currentTimeMillis()}"
+        return RequestManager.requestString(
+            "com.alipay.yebscenebff.expgold.index.exchange",
+            """[{"bizOrderNo":"$bizOrderNo","campId":"$campId","exchangeAmount":"$exchangeAmount","prizeId":"$prizeId"}]"""
+        )
+    }
+
+    fun activeYebTrial(couponId: String): String {
+        return RequestManager.requestString(
+            "alipay.yebprod.promo.yebTrial.active",
+            """[{"couponId":"$couponId","equityType":"voucher","type":"YEB_TRIAL"}]"""
         )
     }
 

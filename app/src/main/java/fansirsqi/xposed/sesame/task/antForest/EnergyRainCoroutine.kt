@@ -17,6 +17,11 @@ import kotlin.random.Random
  */
 object EnergyRainCoroutine {
     private const val TAG = "EnergyRain"
+    private val SILENT_GRANT_FAILURE_CODES = setOf(
+        "FRIEND_NOT_FOREST_USER",
+        "RAIN_ENERGY_GRANTED_BY_OTHER",
+        "RAIN_ENERGY_GRANT_EXCEED"
+    )
 
     /**
      * 上次执行能量雨的时间戳
@@ -108,10 +113,32 @@ object EnergyRainCoroutine {
                                 val uid = grantInfo.getString("userId")
                                 if (giveEnergyRainSet.contains(uid)) {
                                     val rainJsonObj = JSONObject(AntForestRpcCall.grantEnergyRainChance(uid))
-                                    Log.record(TAG, "尝试送能量雨给【${UserMap.getMaskName(uid)}】")
+                                    val maskedName = UserMap.getMaskName(uid)
+                                    val resultCode = rainJsonObj.optString("resultCode")
+                                    val resultDesc = rainJsonObj.optString("resultDesc")
+                                    Log.record(TAG, "尝试送能量雨给【$maskedName】")
+                                    if (resultCode in SILENT_GRANT_FAILURE_CODES) {
+                                        when (resultCode) {
+                                            "RAIN_ENERGY_GRANT_EXCEED" -> {
+                                                Status.setFlagToday(grantExceedFlag)
+                                                Log.record(TAG, "送能量雨已达到今日上限，停止继续尝试")
+                                                grantExceeded = true
+                                                break
+                                            }
+
+                                            "FRIEND_NOT_FOREST_USER" -> {
+                                                Log.record(TAG, "跳过赠送【$maskedName】:${resultDesc.ifEmpty { "好友未开通蚂蚁森林" }}")
+                                            }
+
+                                            "RAIN_ENERGY_GRANTED_BY_OTHER" -> {
+                                                Log.record(TAG, "跳过赠送【$maskedName】:${resultDesc.ifEmpty { "该好友已被其他人赠送" }}")
+                                            }
+                                        }
+                                        continue
+                                    }
                                     if (ResChecker.checkRes(TAG, rainJsonObj)) {
                                         Log.forest(
-                                            "赠送能量雨机会给🌧️[${UserMap.getMaskName(uid)}]#${
+                                            "赠送能量雨机会给🌧️[$maskedName]#${
                                                 UserMap.getMaskName(
                                                     UserMap.currentUid
                                                 )
@@ -121,14 +148,6 @@ object EnergyRainCoroutine {
                                         granted = true
                                         break
                                     } else {
-                                        val resultCode = rainJsonObj.optString("resultCode")
-                                        if (resultCode == "RAIN_ENERGY_GRANT_EXCEED") {
-                                            // 达到上限后无需继续遍历好友，避免刷屏/风控。
-                                            Status.setFlagToday(grantExceedFlag)
-                                            Log.record(TAG, "送能量雨已达到今日上限，停止继续尝试")
-                                            grantExceeded = true
-                                            break
-                                        }
                                         Log.error(TAG, "送能量雨失败 $rainJsonObj")
                                     }
                                 }

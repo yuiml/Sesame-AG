@@ -6,6 +6,7 @@ import fansirsqi.xposed.sesame.extensions.JSONExtensions.toJSONArray
 import fansirsqi.xposed.sesame.model.modelFieldExt.SelectModelField
 import fansirsqi.xposed.sesame.task.antFarm.AntFarm.AnimalFeedStatus
 import fansirsqi.xposed.sesame.task.antFarm.AntFarm.AnimalInteractStatus
+import fansirsqi.xposed.sesame.task.antSports.AntSportsRpcCall
 import fansirsqi.xposed.sesame.util.GlobalThreadPools
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.RandomUtil
@@ -64,6 +65,9 @@ data object AntFarmFamily {
      */
     fun enterFamily(familyOptions: SelectModelField, notInviteList: SelectModelField) {
         try {
+            runCatching {
+                AntFarmRpcCall.refinedOperation("ENTERFAMILY")
+            }
             val enterRes = JSONObject(AntFarmRpcCall.enterFamily());
             if (ResChecker.checkRes(TAG, enterRes)) {
                 if (!enterRes.has("groupId")) {
@@ -113,6 +117,10 @@ data object AntFarmFamily {
 
                 if (familyOptions.value?.contains("eatTogetherConfig") == true) {
                     familyEatTogether(eatTogetherConfig, familyInteractActions, familyUserIds)
+                }
+
+                if (familyOptions.value?.contains("familyDonateStep") == true) {
+                    familyDonateStep()
                 }
 
                 if (familyOptions.value?.contains("deliverMsgSend") == true) {
@@ -399,6 +407,119 @@ data object AntFarmFamily {
             }
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "familyEatTogether err:",t)
+        }
+    }
+
+    /**
+     * 家庭任务：运动公益捐步（FAMILY_TREAD_MALL）
+     */
+    private fun familyDonateStep() {
+        try {
+            val currentUid = UserMap.currentUid
+            if (currentUid.isNullOrBlank()) {
+                return
+            }
+
+            val taskJo = JSONObject(AntFarmRpcCall.listFamilyTask())
+            if (!ResChecker.checkRes(TAG, taskJo)) {
+                Log.record(TAG, "家庭任务🏠捐步做公益#listFamilyTask 调用失败，跳过")
+                return
+            }
+
+            val familyTasks = taskJo.optJSONArray("familyTasks") ?: return
+            var needDonateStep = false
+            for (index in 0 until familyTasks.length()) {
+                val task = familyTasks.optJSONObject(index) ?: continue
+                val bizKey = task.optString("bizKey")
+                val taskId = task.optString("taskId")
+                if (bizKey != "FAMILY_TREAD_MALL" && taskId != "FAMILY_TREAD_MALL") {
+                    continue
+                }
+
+                when (task.optString("taskStatus")) {
+                    "RECEIVED", "FINISHED" -> {
+                        Status.exchangeToday(currentUid)
+                        return
+                    }
+
+                    "TODO" -> {
+                        needDonateStep = true
+                    }
+                }
+                break
+            }
+
+            if (!needDonateStep) {
+                return
+            }
+
+            if (!Status.canExchangeToday(currentUid)) {
+                Log.record(TAG, "家庭任务🏠捐步做公益#今日已完成，跳过")
+                return
+            }
+
+            val stepJo = JSONObject(AntSportsRpcCall.queryWalkStep())
+            if (!ResChecker.checkRes(TAG, stepJo)) {
+                Log.record(TAG, "家庭任务🏠捐步做公益#queryWalkStep 调用失败，跳过")
+                return
+            }
+
+            val produceQuantity = AntSportsRpcCall.extractWalkStepCount(stepJo)
+            if (produceQuantity <= 0) {
+                Log.record(TAG, "家庭任务🏠捐步做公益#当前暂无可捐步数")
+                return
+            }
+
+            AntSportsRpcCall.walkDonateSignInfo(produceQuantity)
+            val donateHomeResponse = AntSportsRpcCall.donateWalkHome(produceQuantity)
+            val donateHomeJo = JSONObject(donateHomeResponse)
+            if (!donateHomeJo.optBoolean("isSuccess", false)) {
+                if (donateHomeResponse.contains("已捐步")) {
+                    Status.exchangeToday(currentUid)
+                    Log.record(TAG, "家庭任务🏠捐步做公益#今日已捐步，跳过")
+                } else {
+                    Log.record(TAG, "家庭任务🏠捐步做公益失败: ${donateHomeJo.optString("resultDesc", donateHomeResponse)}")
+                }
+                return
+            }
+
+            val walkDonateHomeModel = donateHomeJo.optJSONObject("walkDonateHomeModel") ?: return
+            val walkUserInfoModel = walkDonateHomeModel.optJSONObject("walkUserInfoModel")
+            if (walkUserInfoModel == null || !walkUserInfoModel.has("exchangeFlag")) {
+                Status.exchangeToday(currentUid)
+                return
+            }
+
+            val donateToken = walkDonateHomeModel.optString("donateToken")
+            val activityId = walkDonateHomeModel.optJSONObject("walkCharityActivityModel")
+                ?.optString("activityId")
+                .orEmpty()
+            if (donateToken.isBlank() || activityId.isBlank()) {
+                Log.record(TAG, "家庭任务🏠捐步做公益#缺少 donateToken 或 activityId，跳过")
+                return
+            }
+
+            val exchangeResponse = AntSportsRpcCall.exchange(activityId, produceQuantity, donateToken)
+            val exchangeJo = JSONObject(exchangeResponse)
+            if (exchangeJo.optBoolean("isSuccess", false)) {
+                val donateExchangeResultModel = exchangeJo.optJSONObject("donateExchangeResultModel")
+                val userCount = donateExchangeResultModel?.optInt("userCount", produceQuantity) ?: produceQuantity
+                val amount = donateExchangeResultModel?.optJSONObject("userAmount")?.optDouble("amount", 0.0) ?: 0.0
+                Log.farm("家庭任务🏠捐步做公益🚶[${userCount}步]#兑换${amount}元公益金")
+                Status.exchangeToday(currentUid)
+                syncFamilyStatusIntimacy(groupId)
+                return
+            }
+
+            if (exchangeResponse.contains("已捐步") || exchangeJo.optString("resultDesc").contains("已捐步")) {
+                Status.exchangeToday(currentUid)
+                Log.record(TAG, "家庭任务🏠捐步做公益#今日已捐步")
+                return
+            }
+
+            Log.record(TAG, "家庭任务🏠捐步做公益失败: ${exchangeJo.optString("resultDesc", exchangeResponse)}")
+        } catch (t: Throwable) {
+            Log.printStackTrace(TAG, "familyDonateStep err:", t)
         }
     }
 

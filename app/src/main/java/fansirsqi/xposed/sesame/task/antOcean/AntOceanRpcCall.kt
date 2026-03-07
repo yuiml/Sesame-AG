@@ -13,6 +13,11 @@ import org.json.JSONObject
  */
 object AntOceanRpcCall {
     private const val VERSION = "20241203"
+    private const val SOURCE_APP_CENTER = "chInfo_ch_appcenter__chsub_9patch"
+    private const val SOURCE_ATLAS = "chInfo_ch_url-https://2021003115672468.h5app.alipay.com/www/atlasOcean.html"
+    private const val SOURCE_FOREST = "ANT_FOREST"
+    private const val SOURCE_OCEAN = "ANTFOCEAN"
+    private const val SOURCE_RECENTLY_USED = "chInfo_ch_appcollect__chsub_my-recentlyUsed"
     
     private fun getUniqueId(): String {
         return "${System.currentTimeMillis()}${RandomUtil.nextLong()}"
@@ -22,7 +27,7 @@ object AntOceanRpcCall {
     fun queryOceanStatus(): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.queryOceanStatus",
-            "[{\"source\":\"chInfo_ch_appcenter__chsub_9patch\"}]"
+            "[{\"source\":\"$SOURCE_APP_CENTER\"}]"
         )
     }
     
@@ -30,7 +35,7 @@ object AntOceanRpcCall {
     fun queryHomePage(): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.queryHomePage",
-            "[{\"source\":\"ANT_FOREST\",\"uniqueId\":\"${getUniqueId()}\",\"version\":\"$VERSION\"}]"
+            "[{\"source\":\"$SOURCE_FOREST\",\"uniqueId\":\"${getUniqueId()}\",\"version\":\"$VERSION\"}]"
         )
     }
     
@@ -38,7 +43,7 @@ object AntOceanRpcCall {
     fun cleanOcean(userId: String): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.cleanOcean",
-            "[{\"cleanedUserId\":\"$userId\",\"source\":\"ANT_FOREST\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"cleanedUserId\":\"$userId\",\"source\":\"$SOURCE_FOREST\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -46,7 +51,7 @@ object AntOceanRpcCall {
     fun ipOpenSurprise(): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.ipOpenSurprise",
-            "[{\"source\":\"chInfo_ch_appcenter__chsub_9patch\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"source\":\"$SOURCE_APP_CENTER\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -62,7 +67,7 @@ object AntOceanRpcCall {
     fun receiveTaskAward(sceneCode: String, taskType: String): String {
         return RequestManager.requestString(
             "com.alipay.antiep.receiveTaskAward",
-            "[{\"ignoreLimit\":false,\"requestType\":\"RPC\",\"sceneCode\":\"$sceneCode\",\"source\":\"ANT_FOREST\",\"taskType\":\"$taskType\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"ignoreLimit\":false,\"requestType\":\"RPC\",\"sceneCode\":\"$sceneCode\",\"source\":\"$SOURCE_OCEAN\",\"taskType\":\"$taskType\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -71,7 +76,7 @@ object AntOceanRpcCall {
         val outBizNo = "${taskType}_${RandomUtil.nextDouble()}"
         return RequestManager.requestString(
             "com.alipay.antiep.finishTask",
-            "[{\"outBizNo\":\"$outBizNo\",\"requestType\":\"RPC\",\"sceneCode\":\"$sceneCode\",\"source\":\"ANTFOCEAN\",\"taskType\":\"$taskType\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"outBizNo\":\"$outBizNo\",\"requestType\":\"RPC\",\"sceneCode\":\"$sceneCode\",\"source\":\"$SOURCE_OCEAN\",\"taskType\":\"$taskType\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -95,7 +100,7 @@ object AntOceanRpcCall {
     fun repairSeaArea(): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.repairSeaArea",
-            "[{\"source\":\"chInfo_ch_appcenter__chsub_9patch\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"source\":\"$SOURCE_APP_CENTER\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -103,7 +108,15 @@ object AntOceanRpcCall {
     fun queryOceanPropList(): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.queryOceanPropList",
-            "[{\"propTypeList\":\"UNIVERSAL_PIECE\",\"skipPropId\":false,\"source\":\"chInfo_ch_appcenter__chsub_9patch\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"propTypeList\":\"UNIVERSAL_PIECE\",\"skipPropId\":false,\"source\":\"$SOURCE_APP_CENTER\",\"uniqueId\":\"${getUniqueId()}\"}]"
+        )
+    }
+
+    @JvmStatic
+    fun createSeaAreaExtraCollect(): String {
+        return RequestManager.requestString(
+            "alipay.antocean.ocean.h5.createSeaAreaExtraCollect",
+            "[{\"source\":\"$SOURCE_RECENTLY_USED\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -111,7 +124,7 @@ object AntOceanRpcCall {
     fun querySeaAreaDetailList(): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.querySeaAreaDetailList",
-            "[{\"seaAreaCode\":\"\",\"source\":\"chInfo_ch_appcenter__chsub_9patch\",\"targetUserId\":\"\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"seaAreaCode\":\"\",\"source\":\"$SOURCE_APP_CENTER\",\"targetUserId\":\"\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -119,7 +132,7 @@ object AntOceanRpcCall {
     fun queryOceanChapterList(): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.queryOceanChapterList",
-            "[{\"source\":\"chInfo_ch_url-https://2021003115672468.h5app.alipay.com/www/atlasOcean.html\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"source\":\"$SOURCE_ATLAS\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -127,7 +140,7 @@ object AntOceanRpcCall {
     fun switchOceanChapter(chapterCode: String): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.switchOceanChapter",
-            "[{\"chapterCode\":\"$chapterCode\",\"source\":\"chInfo_ch_url-https://2021003115672468.h5app.alipay.com/www/atlasOcean.html\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"chapterCode\":\"$chapterCode\",\"source\":\"$SOURCE_ATLAS\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -135,7 +148,31 @@ object AntOceanRpcCall {
     fun queryMiscInfo(): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.queryMiscInfo",
-            "[{\"queryBizTypes\":[\"HOME_TIPS_REFRESH\"],\"source\":\"chInfo_ch_appcenter__chsub_9patch\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"extInfo\":{\"EMERGENCY\":${RandomUtil.nextInt(10000, 100000)}},\"queryBizTypes\":[\"EMERGENCY\",\"HOME_TIPS_REFRESH\",\"NEW_SEA_AREA_CAN_BE_REPAIRED_TIP\"],\"source\":\"$SOURCE_APP_CENTER\",\"uniqueId\":\"${getUniqueId()}\"}]"
+        )
+    }
+
+    @JvmStatic
+    fun queryNotice(): String {
+        return RequestManager.requestString(
+            "alipay.antocean.ocean.h5.notice",
+            "[{\"noticeReqList\":[{\"extInfo\":{\"fromAct\":\"dynamic_task\"},\"needDetail\":false,\"noticeType\":\"INDEX_TASK_NOTICE\"},{\"needDetail\":false,\"noticeType\":\"CULTIVATION_LIST_ENTRANCE\"},{\"needDetail\":false,\"noticeType\":\"INDEX_GAME_ENTRY_NOTICE\"},{\"needDetail\":false,\"noticeType\":\"INTERACT_RECEIVE_PIECE\"}],\"source\":\"$SOURCE_APP_CENTER\",\"uniqueId\":\"${getUniqueId()}\",\"version\":\"$VERSION\"}]"
+        )
+    }
+
+    @JvmStatic
+    fun popupWin(): String {
+        return RequestManager.requestString(
+            "alipay.antocean.ocean.h5.popupWin",
+            "[{\"actionCodes\":[\"OCEAN_HOME\",\"OCEAN_POP_UP\"],\"source\":\"$SOURCE_APP_CENTER\",\"uniqueId\":\"${getUniqueId()}\"}]"
+        )
+    }
+
+    @JvmStatic
+    fun queryRefinedMaterial(): String {
+        return RequestManager.requestString(
+            "alipay.antocean.ocean.h5.queryRefinedMaterial",
+            "[{\"source\":\"$SOURCE_APP_CENTER\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -143,7 +180,7 @@ object AntOceanRpcCall {
     fun combineFish(fishId: String): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.combineFish",
-            "[{\"fishId\":\"$fishId\",\"source\":\"ANT_FOREST\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"fishId\":\"$fishId\",\"source\":\"$SOURCE_APP_CENTER\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -159,7 +196,7 @@ object AntOceanRpcCall {
     fun cleanFriendOcean(userId: String): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.cleanFriendOcean",
-            "[{\"cleanedUserId\":\"$userId\",\"source\":\"ANT_FOREST\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"cleanedUserId\":\"$userId\",\"source\":\"$SOURCE_FOREST\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -167,7 +204,7 @@ object AntOceanRpcCall {
     fun queryFriendPage(userId: String): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.queryFriendPage",
-            "[{\"friendUserId\":\"$userId\",\"interactFlags\":\"T\",\"source\":\"ANT_FOREST\",\"uniqueId\":\"${getUniqueId()}\",\"version\":\"$VERSION\"}]"
+            "[{\"friendUserId\":\"$userId\",\"interactFlags\":\"T\",\"source\":\"$SOURCE_FOREST\",\"uniqueId\":\"${getUniqueId()}\",\"version\":\"$VERSION\"}]"
         )
     }
     
@@ -175,7 +212,7 @@ object AntOceanRpcCall {
     fun queryUserRanking(): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.queryUserRanking",
-            "[{\"source\":\"ANT_FOREST\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"source\":\"$SOURCE_FOREST\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
 
@@ -186,7 +223,7 @@ object AntOceanRpcCall {
     fun fillUserFlag(userIdList: JSONArray): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.fillUserFlag",
-            "[{\"source\":\"ANT_FOREST\",\"uniqueId\":\"${getUniqueId()}\",\"userIdList\":$userIdList}]"
+            "[{\"source\":\"$SOURCE_FOREST\",\"uniqueId\":\"${getUniqueId()}\",\"userIdList\":$userIdList}]"
         )
     }
     
@@ -196,7 +233,7 @@ object AntOceanRpcCall {
     fun queryCultivationList(): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.queryCultivationList",
-            "[{\"source\":\"ANT_FOREST\",\"version\":\"20231031\"}]"
+            "[{\"source\":\"$SOURCE_FOREST\",\"version\":\"20231031\"}]"
         )
     }
     
@@ -204,7 +241,7 @@ object AntOceanRpcCall {
     fun queryCultivationDetail(cultivationCode: String, projectCode: String): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.queryCultivationDetail",
-            "[{\"cultivationCode\":\"$cultivationCode\",\"projectCode\":\"$projectCode\",\"source\":\"ANT_FOREST\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"cultivationCode\":\"$cultivationCode\",\"projectCode\":\"$projectCode\",\"source\":\"$SOURCE_FOREST\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -212,7 +249,7 @@ object AntOceanRpcCall {
     fun oceanExchangeTree(cultivationCode: String, projectCode: String): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.exchangeTree",
-            "[{\"cultivationCode\":\"$cultivationCode\",\"projectCode\":\"$projectCode\",\"source\":\"ANT_FOREST\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"cultivationCode\":\"$cultivationCode\",\"projectCode\":\"$projectCode\",\"source\":\"$SOURCE_FOREST\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -256,7 +293,7 @@ object AntOceanRpcCall {
     fun queryTaskList(): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.queryTaskList",
-            "[{\"extend\":{},\"fromAct\":\"dynamic_task\",\"sceneCode\":\"ANTOCEAN_TASK\",\"source\":\"ANT_FOREST\",\"uniqueId\":\"${getUniqueId()}\",\"version\":\"$VERSION\"}]"
+            "[{\"extend\":{},\"fromAct\":\"dynamic_task\",\"sceneCode\":\"ANTOCEAN_TASK\",\"source\":\"$SOURCE_FOREST\",\"uniqueId\":\"${getUniqueId()}\",\"version\":\"$VERSION\"}]"
         )
     }
     
@@ -272,7 +309,7 @@ object AntOceanRpcCall {
     fun PDLreceiveTaskAward(taskType: String): String {
         return RequestManager.requestString(
             "com.alipay.antiep.receiveTaskAward",
-            "[{\"ignoreLimit\":\"false\",\"requestType\":\"RPC\",\"sceneCode\":\"ANTOCEAN_AVATAR_TASK\",\"source\":\"ANTFOCEAN\",\"taskType\":\"$taskType\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"ignoreLimit\":\"false\",\"requestType\":\"RPC\",\"sceneCode\":\"ANTOCEAN_AVATAR_TASK\",\"source\":\"$SOURCE_OCEAN\",\"taskType\":\"$taskType\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -282,7 +319,7 @@ object AntOceanRpcCall {
     fun exchangePropList(): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.queryOceanPropList",
-            "[{\"skipPropId\":false,\"source\":\"ANT_FOREST\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"skipPropId\":false,\"source\":\"$SOURCE_APP_CENTER\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -291,7 +328,7 @@ object AntOceanRpcCall {
         val timestamp = System.currentTimeMillis()
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.exchangeProp",
-            "[{\"bizNo\":\"$timestamp\",\"exchangeNum\":\"1\",\"propCode\":\"UNIVERSAL_PIECE\",\"propType\":\"UNIVERSAL_PIECE\",\"source\":\"ANT_FOREST\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"bizNo\":$timestamp,\"exchangeNum\":1,\"propCode\":\"UNIVERSAL_PIECE\",\"propType\":\"UNIVERSAL_PIECE\",\"source\":\"$SOURCE_APP_CENTER\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -301,7 +338,7 @@ object AntOceanRpcCall {
     fun usePropByTypeList(): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.queryOceanPropList",
-            "[{\"propTypeList\":\"UNIVERSAL_PIECE\",\"skipPropId\":false,\"source\":\"chInfo_ch_appcenter__chsub_9patch\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"propTypeList\":\"UNIVERSAL_PIECE\",\"skipPropId\":false,\"source\":\"$SOURCE_APP_CENTER\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
@@ -309,12 +346,12 @@ object AntOceanRpcCall {
     fun queryFishList(pageNum: Int): String {
         return RequestManager.requestString(
             "alipay.antocean.ocean.h5.queryFishList",
-            "[{\"combineStatus\":\"UNOBTAINED\",\"needSummary\":\"Y\",\"pageNum\":$pageNum,\"source\":\"chInfo_ch_appcenter__chsub_9patch\",\"targetUserId\":\"\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"combineStatus\":\"UNOBTAINED\",\"needSummary\":\"Y\",\"pageNum\":$pageNum,\"source\":\"$SOURCE_APP_CENTER\",\"targetUserId\":\"\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
     @JvmStatic
-    fun usePropByType(assets: Int, attachAssetsSet: Set<Int>): String? {
+    fun usePropByType(propCode: String, assets: Int, attachAssetsSet: Set<Int>): String? {
         return try {
             if (attachAssetsSet.isNotEmpty()) {
                 val jsonArray = JSONArray()
@@ -323,13 +360,13 @@ object AntOceanRpcCall {
                         put("assets", assets)
                         put("assetsNum", 1)
                         put("attachAssets", attachAssets)
-                        put("propCode", "UNIVERSAL_PIECE")
+                        put("propCode", propCode)
                     }
                     jsonArray.put(jsonObject)
                 }
                 RequestManager.requestString(
                     "alipay.antocean.ocean.h5.usePropByType",
-                    "[{\"assetsDetails\":$jsonArray,\"propCode\":\"UNIVERSAL_PIECE\",\"propType\":\"UNIVERSAL_PIECE\",\"source\":\"chInfo_ch_appcenter__chsub_9patch\",\"uniqueId\":\"${getUniqueId()}\"}]"
+                    "[{\"assetsDetails\":$jsonArray,\"propCode\":\"$propCode\",\"propType\":\"UNIVERSAL_PIECE\",\"source\":\"$SOURCE_APP_CENTER\",\"uniqueId\":\"${getUniqueId()}\"}]"
                 )
             } else {
                 null

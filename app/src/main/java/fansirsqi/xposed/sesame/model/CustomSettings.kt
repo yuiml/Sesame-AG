@@ -114,14 +114,14 @@ object CustomSettings {
     fun save(userId: String) {
         if (userId.isEmpty()) return
         try {
-            val file = Files.getCustomSetFile(userId)
+            val file = Files.getCustomSetFile(userId) ?: return
             val data = mutableMapOf<String, Any?>()
             data[onlyOnceDaily.code] = onlyOnceDaily.value
             data[onlyOnceDailyList.code] = onlyOnceDailyList.value
             data[autoHandleOnceDaily.code] = autoHandleOnceDaily.value
             data[autoHandleOnceDailyTimes.code] = autoHandleOnceDailyTimes.value
             val json = JsonUtil.formatJson(data)
-            if (json != null) Files.write2File(json, file!!)
+            Files.write2File(json, file)
         } catch (e: Throwable) {
             Log.printStackTrace(TAG, "Failed to save custom settings", e)
         }
@@ -131,8 +131,8 @@ object CustomSettings {
     fun load(userId: String) {
         if (userId.isEmpty()) return
         try {
-            val file = Files.getCustomSetFile(userId)
-            if (!file!!.exists()) {
+            val file = Files.getCustomSetFile(userId) ?: return
+            if (!file.exists()) {
                 resetToDefault()
                 return
             }

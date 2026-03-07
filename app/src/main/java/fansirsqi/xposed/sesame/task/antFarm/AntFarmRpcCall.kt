@@ -11,6 +11,7 @@ import java.util.UUID
 
 object AntFarmRpcCall {
     private const val VERSION = "1.8.2302070202.46"
+    private const val GAME_CENTER_VERSION = "10.8.20.8000"
 
     /**
      * 进入农场
@@ -270,11 +271,17 @@ object AntFarmRpcCall {
     }
 
     @JvmStatic
-    fun receiveFarmTaskAward(taskId: String): String {
-        val args1 =
-            ("[{\"requestType\":\"NORMAL\",\"sceneCode\":\"ANTFARM\",\"source\":\"H5\",\"taskId\":\""
-                    + taskId + "\",\"version\":\"" + VERSION + "\"}]")
-        return requestString("com.alipay.antfarm.receiveFarmTaskAward", args1)
+    fun receiveFarmTaskAward(taskId: String, awardType: String? = null): String {
+        val args = JSONObject()
+        args.put("requestType", "NORMAL")
+        args.put("sceneCode", "ANTFARM")
+        args.put("source", "H5")
+        args.put("taskId", taskId)
+        args.put("version", VERSION)
+        if (!awardType.isNullOrBlank()) {
+            args.put("awardType", awardType)
+        }
+        return requestString("com.alipay.antfarm.receiveFarmTaskAward", JSONArray().put(args).toString())
     }
 
     @JvmStatic
@@ -735,6 +742,21 @@ object AntFarmRpcCall {
         )
     }
 
+    @JvmStatic
+    fun refinedOperation(
+        actionId: String,
+        source: String = "H5",
+        requestType: String = "NORMAL"
+    ): String {
+        val args = JSONObject()
+        args.put("actionId", actionId)
+        args.put("requestType", requestType)
+        args.put("sceneCode", "ANTFARM")
+        args.put("source", source)
+        args.put("version", VERSION)
+        return requestString("com.alipay.antfarm.refinedOperation", JSONArray().put(args).toString())
+    }
+
     /**
      * 抽抽乐-抽奖类型选择器
      *
@@ -785,7 +807,7 @@ object AntFarmRpcCall {
         args.put("bizKey", bizKey)
         args.put("requestType", "RPC")
         args.put("sceneCode", "ANTFARM")
-        args.put("source", "H5")
+        args.put("source", "antfarm_villa")
         args.put("taskSceneCode", taskSceneCode)
         val params = "[" + args + "]"
         return requestString("com.alipay.antfarm.doFarmTask", params)
@@ -802,14 +824,21 @@ object AntFarmRpcCall {
      */
     @JvmStatic
     @Throws(JSONException::class)
-    fun chouchouleReceiveFarmTaskAward(drawType: String, taskId: String?): String {
+    fun chouchouleReceiveFarmTaskAward(
+        drawType: String,
+        taskId: String?,
+        awardType: String? = null
+    ): String {
         val taskSceneCode = chouchouleSelector(drawType)
         val args = JSONObject()
         args.put("requestType", "RPC")
         args.put("sceneCode", "ANTFARM")
-        args.put("source", "H5")
+        args.put("source", "antfarm_villa")
         args.put("taskId", taskId)
         args.put("taskSceneCode", taskSceneCode)
+        if (!awardType.isNullOrBlank()) {
+            args.put("awardType", awardType)
+        }
         val params = "[" + args + "]"
         return requestString("com.alipay.antfarm.receiveFarmTaskAward", params)
     }
@@ -1010,10 +1039,7 @@ object AntFarmRpcCall {
 
     @JvmStatic
     fun drawGameCenterAward(): String {
-        return requestString(
-            "com.alipay.antfarm.drawGameCenterAward",
-            "[{\"requestType\":\"NORMAL\",\"sceneCode\":\"ANTFARM\",\"source\":\"H5\",\"version\":\"$VERSION\"}]"
-        )
+        return drawGameCenterAward(1)
     }
 
     /**
@@ -1023,21 +1049,49 @@ object AntFarmRpcCall {
      */
     @JvmStatic
     fun drawGameCenterAward(drawTimes: Int): String {
-        if (drawTimes <= 1) {
-            return drawGameCenterAward()
+        return try {
+            val args = JSONObject().apply {
+                put("batchDrawCount", drawTimes.coerceAtLeast(1))
+                put("bizType", "ANTFARM")
+                put("requestType", "RPC")
+                put("sceneCode", "ANTFARM")
+                put("source", "H5")
+                put("version", GAME_CENTER_VERSION)
+            }
+            requestString(
+                "com.alipay.charitygamecenter.drawGameCenterAward",
+                JSONArray().put(args).toString()
+            )
+        } catch (_: Exception) {
+            ""
         }
-        return requestString(
-            "com.alipay.antfarm.drawGameCenterAward",
-            "[{\"drawTimes\":$drawTimes,\"requestType\":\"NORMAL\",\"sceneCode\":\"ANTFARM\",\"source\":\"H5\",\"version\":\"$VERSION\"}]"
-        )
     }
 
     @JvmStatic
     fun queryGameList(): String {
-        return requestString(
-            "com.alipay.antfarm.queryGameList",
-            "[{\"commonDegradeResult\":{\"deviceLevel\":\"high\",\"resultReason\":0,\"resultType\":0},\"platform\":\"Android\",\"requestType\":\"NORMAL\",\"sceneCode\":\"ANTFARM\",\"source\":\"H5\",\"version\":\"" + VERSION + "\"}]"
-        )
+        return try {
+            val args = JSONObject().apply {
+                put("bizType", "ANTFARM")
+                put(
+                    "commonDegradeFilterRequest",
+                    JSONObject().apply {
+                        put("deviceLevel", "high")
+                        put("platform", "Android")
+                        put("unityDeviceLevel", "high")
+                    }
+                )
+                put("requestType", "NORMAL")
+                put("sceneCode", "ANTFARM")
+                put("source", "H5")
+                put("version", GAME_CENTER_VERSION)
+            }
+            requestString(
+                "com.alipay.charitygamecenter.queryGameList",
+                JSONArray().put(args).toString()
+            )
+        } catch (_: Exception) {
+            ""
+        }
     }
 
     // 小鸡换装
@@ -1081,6 +1135,13 @@ object AntFarmRpcCall {
                 "\"timeZoneId\":\"Asia/Shanghai\"" +
                 "}]"
         return requestString("com.alipay.antfarm.familyTaskTips", args)
+    }
+
+    @JvmStatic
+    fun listFamilyTask(): String {
+        val args =
+            "[{\"requestType\":\"NORMAL\",\"sceneCode\":\"ANTFARM\",\"source\":\"H5\",\"timeZoneId\":\"Asia/Shanghai\"}]"
+        return requestString("com.alipay.antfarm.listFamilyTask", args)
     }
 
     @JvmStatic

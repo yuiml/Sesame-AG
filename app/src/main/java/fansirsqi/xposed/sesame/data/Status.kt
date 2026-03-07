@@ -542,7 +542,7 @@ class Status {
         @Synchronized
         @JvmStatic
         fun load(currentUid: String?): Status {
-            if (StringUtil.isEmpty(currentUid)) {
+            if (currentUid.isNullOrEmpty()) {
                 Log.record(TAG, "用户为空，状态加载失败")
                 throw RuntimeException("用户为空，状态加载失败")
             }
@@ -551,12 +551,12 @@ class Status {
                 if (statusFile!!.exists()) {
                     Log.record(TAG, "加载 status.json")
                     val json = Files.readFromFile(statusFile)
-                    if (!json.trim().isEmpty()) {
+                    if (json.trim().isNotEmpty()) {
                         // 使用 Jackson 更新现有对象
                         JsonUtil.copyMapper().readerForUpdating(INSTANCE).readValue<Status>(json)
                         // 格式化检查
                         val formatted = JsonUtil.formatJson(INSTANCE)
-                        if (formatted != null && formatted != json) {
+                        if (formatted != json) {
                             Log.record(TAG, "重新格式化 status.json")
                             Files.write2File(formatted, statusFile)
                         }
@@ -621,7 +621,7 @@ class Status {
         @JvmStatic
         fun save(nowCalendar: Calendar = Calendar.getInstance()) {
             val currentUid = UserMap.currentUid
-            if (StringUtil.isEmpty(currentUid)) {
+            if (currentUid.isNullOrEmpty()) {
                 Log.record(TAG, "用户为空，状态保存失败")
                 throw RuntimeException("用户为空，状态保存失败")
             }

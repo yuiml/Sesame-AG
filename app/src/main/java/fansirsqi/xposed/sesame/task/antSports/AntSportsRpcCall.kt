@@ -443,18 +443,50 @@ object AntSportsRpcCall {
     }
 
     /**
-     * @brief 查询行走步数
-     * 
+     * @brief 查询当前可用步数
+     *
+     * @details
+     * 2026-03 抓包显示捐步查询已切换为 `alipay.antsports.steps.query`，
+     * 返回结构以顶层 `stepCount` 为主；旧版 `dailyStepModel.produceQuantity`
+     * 仍保留兼容解析，见 [extractWalkStepCount]。
+     *
      * @return RPC调用结果的 JSON 字符串
-     * 
-     * @deprecated 该为旧版接口
-     * @remark 对应API：alipay.antsports.walk.user.queryWalkStep
+     *
+     * @remark 对应API：alipay.antsports.steps.query
      */
     fun queryWalkStep(): String {
         return RequestManager.requestString(
-            "alipay.antsports.walk.user.queryWalkStep",
-            """[{"chInfo":"$CH_INFO","clientOS":"android","features":["DAILY_STEPS_RANK_V2","STEP_BATTLE","CLUB_HOME_CARD","NEW_HOME_PAGE_STATIC","CLOUD_SDK_AUTH","STAY_ON_COMPLETE","EXTRA_TREASURE_BOX","NEW_HOME_PAGE_STATIC","SUPPORT_TAB3","SUPPORT_FLYRABBIT","PROP","PROPV2","ASIAN_GAMES"],"timeZone":"$TIME_ZONE"}]"""
+            "alipay.antsports.steps.query",
+            """[{"appId":"healthstep","bizId":"donation","chInfo":"h5_donation_healthstep","timeZone":"$TIME_ZONE"}]"""
         )
+    }
+
+    /**
+     * @brief 从捐步查询响应中提取可用步数
+     *
+     * @param response `queryWalkStep()` 返回的 JSON 对象
+     * @return 可用步数，解析失败时返回 0
+     */
+    fun extractWalkStepCount(response: JSONObject?): Int {
+        if (response == null) {
+            return 0
+        }
+
+        if (response.has("stepCount")) {
+            return response.optInt("stepCount", 0).coerceAtLeast(0)
+        }
+
+        val dailyStepModel = response.optJSONObject("dailyStepModel")
+        if (dailyStepModel != null) {
+            if (dailyStepModel.has("produceQuantity")) {
+                return dailyStepModel.optInt("produceQuantity", 0).coerceAtLeast(0)
+            }
+            if (dailyStepModel.has("stepCount")) {
+                return dailyStepModel.optInt("stepCount", 0).coerceAtLeast(0)
+            }
+        }
+
+        return 0
     }
 
     /**

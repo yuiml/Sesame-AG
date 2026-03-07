@@ -604,13 +604,24 @@ object AntForestRpcCall {
     }
 
     @JvmStatic
-    fun queryAnimalAndPiece(animalId: Int): String {
-        val args = if (animalId != 0) {
-            "[{\"animalId\":$animalId,\"source\":\"ant_forest\",\"timezoneId\":\"Asia/Shanghai\"}]"
-        } else {
-            "[{\"source\":\"ant_forest\",\"timezoneId\":\"Asia/Shanghai\",\"withDetail\":\"N\",\"withGift\":true}]"
+    fun queryAnimalAndPiece(animalId: Int, patrolId: Int = 0): String {
+        val jo = JSONObject().apply {
+            put("source", "ant_forest")
+            put("timezoneId", "Asia/Shanghai")
+            when {
+                patrolId > 0 -> {
+                    put("patrolId", patrolId)
+                    put("withDetail", "N")
+                }
+
+                animalId != 0 -> put("animalId", animalId)
+                else -> {
+                    put("withDetail", "N")
+                    put("withGift", true)
+                }
+            }
         }
-        return RequestManager.requestString("alipay.antforest.forest.h5.queryAnimalAndPiece", args)
+        return RequestManager.requestString("alipay.antforest.forest.h5.queryAnimalAndPiece", JSONArray().put(jo).toString())
     }
 
     @JvmStatic

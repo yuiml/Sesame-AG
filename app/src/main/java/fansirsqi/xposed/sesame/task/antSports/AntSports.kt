@@ -16,11 +16,12 @@ import fansirsqi.xposed.sesame.model.modelFieldExt.IntegerModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.SelectModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.StringModelField
 import fansirsqi.xposed.sesame.task.ModelTask
-import fansirsqi.xposed.sesame.task.TaskCommon
 import fansirsqi.xposed.sesame.util.*
 import fansirsqi.xposed.sesame.util.maps.UserMap
 import org.json.JSONArray
 import org.json.JSONObject
+import java.lang.reflect.Method
+import java.lang.reflect.Modifier
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -260,8 +261,7 @@ class AntSports : ModelTask() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val originStep = param.result as Int
                         val step = tmpStepCount()
-                        // 早于 8 点或步数小于自定义步数时进行 hook
-                        if (TaskCommon.IS_AFTER_8AM && originStep < step) {
+                        if (shouldOverrideDailyStep(originStep, step)) {
                             param.result = step
                         }
                     }
@@ -324,7 +324,7 @@ class AntSports : ModelTask() {
 
             // 捐能量
             if (donateCharityCoin.value == true && Status.canDonateCharityCoin()) {
-                queryProjectList(loader)
+                queryProjectList()
             }
 
             // 捐步
@@ -332,7 +332,7 @@ class AntSports : ModelTask() {
             if ((minExchangeCount.value ?: 0) > 0 &&
                 currentUid != null &&
                 Status.canExchangeToday(currentUid)) {
-                queryWalkStep(loader)
+                queryWalkStep()
             }
 
             // 文体中心
@@ -374,30 +374,23 @@ class AntSports : ModelTask() {
                 Runnable {
                     val step = tmpStepCount()
                     try {
+                        if (step <= 0) {
+                            Log.record(TAG, "同步步数已关闭，跳过主动同步")
+                            Status.setFlagToday(StatusFlags.FLAG_ANTSPORTS_SYNC_STEP_DONE)
+                            return@Runnable
+                        }
+
                         val loader = ApplicationHook.classLoader
                         if (loader == null) {
                             Log.error(TAG, "ClassLoader is null, 跳过同步步数")
                             return@Runnable
                         }
 
-                        val rpcManager = XposedHelpers.callStaticMethod(
-                            loader.loadClass("com.alibaba.health.pedometer.intergation.rpc.RpcManager"),
-                            "a"
-                        )
-
-                        val success = XposedHelpers.callMethod(
-                            rpcManager,
-                            "a",
-                            step,
-                            java.lang.Boolean.FALSE,
-                            "system"
-                        ) as Boolean
-
-                        if (success) {
+                        if (syncStepByRpcManager(loader, step)) {
                             Log.other("同步步数🏃🏻‍♂️[$step 步]")
                             Status.setFlagToday(StatusFlags.FLAG_ANTSPORTS_SYNC_STEP_DONE)
                         } else {
-                            Log.error(TAG, "同步运动步数失败:$step")
+                            Log.record(TAG, "主动同步入口未匹配，保留 readDailyStep Hook 等待运动页读取")
                         }
                     } catch (t: Throwable) {
                         Log.printStackTrace(TAG, t)
@@ -424,6 +417,147 @@ class AntSports : ModelTask() {
             }
         }
         return tmpStepCount
+    }
+
+    private fun shouldOverrideDailyStep(originStep: Int, customStep: Int): Boolean {
+        if (customStep <= 0 || originStep >= customStep) {
+            return false
+        }
+
+        val earliestHour = if (::earliestSyncStepTime.isInitialized) {
+            (earliestSyncStepTime.value ?: 0).coerceIn(0, 23)
+        } else {
+            8
+        }
+        return TimeUtil.isNowAfterOrCompareTimeStr(String.format("%02d00", earliestHour))
+    }
+
+    private fun syncStepByRpcManager(loader: ClassLoader, step: Int): Boolean {
+        val candidateClassNames = listOf(
+            "com.alibaba.health.pedometer.intergation.rpc.RpcManager",
+            "com.alibaba.health.pedometer.integration.rpc.RpcManager"
+        )
+
+        for (className in candidateClassNames) {
+            val rpcManagerClass = runCatching { loader.loadClass(className) }.getOrNull() ?: continue
+            val syncMethods = findSyncStepMethods(rpcManagerClass)
+            if (syncMethods.isEmpty()) {
+                continue
+            }
+
+            for (method in syncMethods) {
+                val targets = if (Modifier.isStatic(method.modifiers)) {
+                    listOf<Any?>(null)
+                } else {
+                    collectRpcManagerInstances(rpcManagerClass)
+                }
+
+                for (target in targets) {
+                    if (invokeSyncStepMethod(method, target, step)) {
+                        return true
+                    }
+                }
+            }
+        }
+
+        return false
+    }
+
+    private fun findSyncStepMethods(clazz: Class<*>): List<Method> {
+        return (clazz.declaredMethods.toList() + clazz.methods.toList())
+            .distinctBy { method ->
+                buildString {
+                    append(method.name)
+                    append('#')
+                    append(method.parameterTypes.joinToString(",") { it.name })
+                }
+            }
+            .filter { method ->
+                val parameterTypes = method.parameterTypes
+                if (parameterTypes.size != 3) {
+                    return@filter false
+                }
+
+                val firstArgMatches = parameterTypes[0] == Int::class.javaPrimitiveType ||
+                    parameterTypes[0] == Int::class.javaObjectType ||
+                    parameterTypes[0] == Long::class.javaPrimitiveType ||
+                    parameterTypes[0] == Long::class.javaObjectType
+                val secondArgMatches = parameterTypes[1] == Boolean::class.javaPrimitiveType ||
+                    parameterTypes[1] == Boolean::class.javaObjectType
+                val thirdArgMatches = parameterTypes[2] == String::class.java ||
+                    CharSequence::class.java.isAssignableFrom(parameterTypes[2]) ||
+                    parameterTypes[2] == Any::class.java
+
+                firstArgMatches && secondArgMatches && thirdArgMatches
+            }
+            .sortedByDescending(::scoreSyncStepMethod)
+    }
+
+    private fun scoreSyncStepMethod(method: Method): Int {
+        var score = 0
+        if (method.returnType == Boolean::class.javaPrimitiveType ||
+            method.returnType == Boolean::class.javaObjectType
+        ) {
+            score += 4
+        }
+        if (method.name == "a") {
+            score += 2
+        }
+        if (Modifier.isPublic(method.modifiers)) {
+            score += 1
+        }
+        return score
+    }
+
+    private fun collectRpcManagerInstances(clazz: Class<*>): List<Any?> {
+        val instances = LinkedHashSet<Any?>()
+
+        runCatching {
+            val instanceField = clazz.getDeclaredField("INSTANCE")
+            if (Modifier.isStatic(instanceField.modifiers)) {
+                instanceField.isAccessible = true
+                instances.add(instanceField.get(null))
+            }
+        }
+
+        val singletonMethodNames = setOf("a", "getInstance", "instance")
+        (clazz.declaredMethods.toList() + clazz.methods.toList())
+            .filter { method ->
+                Modifier.isStatic(method.modifiers) &&
+                    method.parameterCount == 0 &&
+                    method.returnType != Void.TYPE &&
+                    (method.name in singletonMethodNames || clazz.isAssignableFrom(method.returnType))
+            }
+            .forEach { method ->
+                runCatching {
+                    method.isAccessible = true
+                    instances.add(method.invoke(null))
+                }
+            }
+
+        runCatching {
+            val constructor = clazz.getDeclaredConstructor()
+            constructor.isAccessible = true
+            instances.add(constructor.newInstance())
+        }
+
+        return instances.filterNotNull()
+    }
+
+    private fun invokeSyncStepMethod(method: Method, target: Any?, step: Int): Boolean {
+        return runCatching {
+            method.isAccessible = true
+            val stepArg: Any = when (method.parameterTypes[0]) {
+                Long::class.javaPrimitiveType, Long::class.javaObjectType -> step.toLong()
+                else -> step
+            }
+            val result = method.invoke(target, stepArg, false, "system")
+            when (result) {
+                is Boolean -> result
+                null -> method.returnType == Void.TYPE
+                else -> true
+            }
+        }.getOrDefault(false)
     }
 
     // ---------------------------------------------------------------------
@@ -1280,7 +1414,7 @@ class AntSports : ModelTask() {
     /**
      * @brief 查询慈善项目列表并执行捐赠
      */
-    private fun queryProjectList(loader: ClassLoader) {
+    private fun queryProjectList() {
         try {
             var jo = JSONObject(AntSportsRpcCall.queryProjectList(0))
             if (ResChecker.checkRes(TAG, jo)) {
@@ -1294,12 +1428,7 @@ class AntSports : ModelTask() {
                     if (charityCoinCount < donateAmount) break
                     val basicModel = ja.getJSONObject(i).getJSONObject("basicModel")
                     if ("DONATE_COMPLETED" == basicModel.getString("footballFieldStatus")) break
-                    donate(
-                        loader,
-                        donateAmount,
-                        basicModel.getString("projectId"),
-                        basicModel.getString("title")
-                    )
+                    donate(donateAmount, basicModel.getString("projectId"), basicModel.getString("title"))
                     Status.donateCharityCoin()
                     charityCoinCount -= donateAmount
                     if (donateCharityCoinType.value == DonateCharityCoinType.ONE) break
@@ -1316,7 +1445,7 @@ class AntSports : ModelTask() {
     /**
      * @brief 执行一次慈善捐赠
      */
-    private fun donate(loader: ClassLoader, donateCharityCoin: Int, projectId: String, title: String) {
+    private fun donate(donateCharityCoin: Int, projectId: String, title: String) {
         try {
             val s = AntSportsRpcCall.donate(donateCharityCoin, projectId)
             val jo = JSONObject(s)
@@ -1333,47 +1462,65 @@ class AntSports : ModelTask() {
     /**
      * @brief 查询行走步数，并根据条件自动捐步
      */
-    private fun queryWalkStep(loader: ClassLoader) {
+    private fun queryWalkStep() {
         try {
             var s = AntSportsRpcCall.queryWalkStep()
             var jo = JSONObject(s)
             if (ResChecker.checkRes(TAG, jo)) {
-                jo = jo.getJSONObject("dailyStepModel")
-                val produceQuantity = jo.getInt("produceQuantity")
+                val produceQuantity = AntSportsRpcCall.extractWalkStepCount(jo)
                 val hour = TimeUtil.getFormatTime().split(":").first().toInt()
 
                 val minExchange = minExchangeCount.value ?: 0
                 val latestHour = latestExchangeTime.value ?: 24
-                if (produceQuantity >= minExchange || hour >= latestHour) {
-                    AntSportsRpcCall.walkDonateSignInfo(produceQuantity)
-                    s = AntSportsRpcCall.donateWalkHome(produceQuantity)
-                    jo = JSONObject(s)
-                    if (!jo.getBoolean("isSuccess")) return
-                    val walkDonateHomeModel = jo.getJSONObject("walkDonateHomeModel")
-                    val walkUserInfoModel = walkDonateHomeModel.getJSONObject("walkUserInfoModel")
-                    if (!walkUserInfoModel.has("exchangeFlag")) {
+                if (produceQuantity <= 0) {
+                    Log.record(TAG, "当前暂无可捐步数")
+                    return
+                }
+                if (produceQuantity < minExchange && hour < latestHour) {
+                    return
+                }
+
+                AntSportsRpcCall.walkDonateSignInfo(produceQuantity)
+                s = AntSportsRpcCall.donateWalkHome(produceQuantity)
+                jo = JSONObject(s)
+                if (!jo.optBoolean("isSuccess", false)) {
+                    if (s.contains("已捐步") || jo.optString("resultDesc").contains("已捐步")) {
                         Status.exchangeToday(UserMap.currentUid ?: return)
-                        return
                     }
-                    val donateToken = walkDonateHomeModel.getString("donateToken")
-                    val walkCharityActivityModel = walkDonateHomeModel.getJSONObject("walkCharityActivityModel")
-                    val activityId = walkCharityActivityModel.getString("activityId")
-                    s = AntSportsRpcCall.exchange(activityId, produceQuantity, donateToken)
-                    jo = JSONObject(s)
-                    if (jo.getBoolean("isSuccess")) {
-                        val donateExchangeResultModel = jo.getJSONObject("donateExchangeResultModel")
-                        val userCount = donateExchangeResultModel.getInt("userCount")
-                        val amount = donateExchangeResultModel.getJSONObject("userAmount").getDouble("amount")
-                        Log.other("捐出活动❤️[$userCount 步]#兑换$amount 元公益金")
-                        Status.exchangeToday(UserMap.currentUid ?: return)
-                    } else if (s.contains("已捐步")) {
-                        Status.exchangeToday(UserMap.currentUid ?: return)
-                    } else {
-                        Log.record(TAG, jo.getString("resultDesc"))
-                    }
+                    return
+                }
+
+                val walkDonateHomeModel = jo.optJSONObject("walkDonateHomeModel") ?: return
+                val walkUserInfoModel = walkDonateHomeModel.optJSONObject("walkUserInfoModel")
+                if (walkUserInfoModel == null || !walkUserInfoModel.has("exchangeFlag")) {
+                    Status.exchangeToday(UserMap.currentUid ?: return)
+                    return
+                }
+
+                val donateToken = walkDonateHomeModel.optString("donateToken")
+                val activityId = walkDonateHomeModel.optJSONObject("walkCharityActivityModel")
+                    ?.optString("activityId")
+                    .orEmpty()
+                if (donateToken.isBlank() || activityId.isBlank()) {
+                    Log.record(TAG, "捐步兑换缺少 donateToken 或 activityId，跳过")
+                    return
+                }
+
+                s = AntSportsRpcCall.exchange(activityId, produceQuantity, donateToken)
+                jo = JSONObject(s)
+                if (jo.optBoolean("isSuccess", false)) {
+                    val donateExchangeResultModel = jo.optJSONObject("donateExchangeResultModel")
+                    val userCount = donateExchangeResultModel?.optInt("userCount", produceQuantity) ?: produceQuantity
+                    val amount = donateExchangeResultModel?.optJSONObject("userAmount")?.optDouble("amount", 0.0) ?: 0.0
+                    Log.other("捐出活动❤️[$userCount 步]#兑换$amount 元公益金")
+                    Status.exchangeToday(UserMap.currentUid ?: return)
+                } else if (s.contains("已捐步") || jo.optString("resultDesc").contains("已捐步")) {
+                    Status.exchangeToday(UserMap.currentUid ?: return)
+                } else {
+                    Log.record(TAG, jo.optString("resultDesc", s))
                 }
             } else {
-                Log.record(TAG, jo.getString("resultDesc"))
+                Log.record(TAG, jo.optString("resultDesc", s))
             }
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "queryWalkStep err:", t)

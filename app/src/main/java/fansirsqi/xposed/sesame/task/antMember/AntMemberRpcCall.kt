@@ -21,6 +21,14 @@ object AntMemberRpcCall {
         return System.currentTimeMillis().toString() + RandomUtil.nextLong()
     }
 
+    private fun buildMemberSourcePassMap(): JSONObject {
+        return JSONObject().apply {
+            put("innerSource", "")
+            put("source", "mytab")
+            put("unid", "")
+        }
+    }
+
     /* ant member point */
     @JvmStatic
     fun queryPointCert(page: Int, pageSize: Int): String {
@@ -38,26 +46,63 @@ object AntMemberRpcCall {
     @Throws(JSONException::class)
     fun receiveAllPointByUser(): String {
         val args = JSONObject().apply {
-            put("bizSource", "myTab")
-            val passMap = JSONObject().apply {
-                put("innerSource", "")
-                put("passInfo", JSONObject().apply {
-                    put("tc", "EXPIRING_POINT")
-                })
-                put("source", "myTab")
-                put("unid", "")
-            }
-            put("sourcePassMap", passMap)
+            put("bizSource", "mytab")
+            put("sourcePassMap", buildMemberSourcePassMap())
         }
         val params = "[$args]"
         return RequestManager.requestString("com.alipay.alipaymember.biz.rpc.pointcert.h5.receiveAllPointByUser", params)
     }
 
     @JvmStatic
+    fun queryPointCertV2(page: Int, pageSize: Int): String {
+        val args = JSONObject().apply {
+            put("abTestInfo", JSONArray())
+            put("dbExpireDt", 0)
+            put("dbId", 0)
+            put("pageNum", page)
+            put("pageSize", pageSize)
+            put("sourcePassMap", buildMemberSourcePassMap())
+        }
+        return RequestManager.requestString(
+            "com.alipay.alipaymember.biz.rpc.pointcert.h5.queryPointCertV2",
+            JSONArray().put(args).toString()
+        )
+    }
+
+    @JvmStatic
     fun queryMemberSigninCalendar(): String {
+        val args = JSONObject().apply {
+            put("autoSignIn", true)
+            put("chInfo", "memberHomePage_ch_mytab")
+            put("invitorUserId", "")
+            put("sceneCode", "QUERY")
+            put("sourcePassMap", buildMemberSourcePassMap())
+        }
         return RequestManager.requestString(
             "com.alipay.amic.biz.rpc.signin.h5.queryMemberSigninCalendar",
-            """[{"autoSignIn":true,"invitorUserId":"","sceneCode":"QUERY"}]"""
+            JSONArray().put(args).toString()
+        )
+    }
+
+    @JvmStatic
+    fun queryReSignInCardInfo(): String {
+        val args = JSONObject().apply {
+            put("sourcePassMap", buildMemberSourcePassMap())
+        }
+        return RequestManager.requestString(
+            "com.alipay.amic.biz.rpc.signin.h5.queryReSignInCardInfo",
+            JSONArray().put(args).toString()
+        )
+    }
+
+    @JvmStatic
+    fun querySimpleIndex(): String {
+        val args = JSONObject().apply {
+            put("sourcePassMap", buildMemberSourcePassMap())
+        }
+        return RequestManager.requestString(
+            "com.alipay.alipaymember.biz.rpc.member.h5.querySimpleIndex",
+            JSONArray().put(args).toString()
         )
     }
 
@@ -112,6 +157,14 @@ object AntMemberRpcCall {
     }
 
     @JvmStatic
+    fun zcjTaskListQueryV2(taskItemCode: String = ""): String {
+        return RequestManager.requestString(
+            "alipay.mrchservbase.zcj.taskList.query.v2",
+            """[{"taskItemCode":"$taskItemCode"}]"""
+        )
+    }
+
+    @JvmStatic
     fun taskListQuery(): String {
         return RequestManager.requestString(
             "alipay.mrchservbase.task.more.query",
@@ -161,6 +214,14 @@ object AntMemberRpcCall {
     }
 
     @JvmStatic
+    fun merchantBallQuery(): String {
+        return RequestManager.requestString(
+            "alipay.mrchservbase.mrchpoint.ball.query.v1",
+            "[{}]"
+        )
+    }
+
+    @JvmStatic
     fun ballReceive(ballIds: String): String {
         return RequestManager.requestString(
             "alipay.mrchservbase.mrchpoint.ball.receive",
@@ -169,6 +230,46 @@ object AntMemberRpcCall {
     }
 
     /* 会员任务 */
+    @JvmStatic
+    fun queryMemberTaskList(): String {
+        val args = JSONObject().apply {
+            put("relatedChannel", "MEMBERPOINT")
+            put("sourcePassMap", buildMemberSourcePassMap())
+        }
+        return RequestManager.requestString(
+            "com.alipay.alipaymember.biz.rpc.membertask.h5.queryTaskList",
+            JSONArray().put(args).toString()
+        )
+    }
+
+    @JvmStatic
+    fun applyMemberTask(taskConfigId: String): String {
+        val args = JSONObject().apply {
+            put("alipayGrowthTask", false)
+            put("sourcePassMap", buildMemberSourcePassMap())
+            put("taskConfigId", taskConfigId)
+        }
+        return RequestManager.requestString(
+            "com.alipay.amic.memtask.h5.MemTaskManagerFacade.applyTask",
+            JSONArray().put(args).toString()
+        )
+    }
+
+    @JvmStatic
+    fun executeMemberTask(bizParam: String, bizSubType: String, bizType: String): String {
+        val args = JSONObject().apply {
+            put("bizParam", bizParam)
+            put("bizSubType", bizSubType)
+            put("bizType", bizType)
+            put("outBizNo", System.currentTimeMillis().toString())
+            put("sourcePassMap", buildMemberSourcePassMap())
+        }
+        return RequestManager.requestString(
+            "com.alipay.amic.memtask.h5.MemTaskManagerFacade.executeTask",
+            JSONArray().put(args).toString()
+        )
+    }
+
     @JvmStatic
     fun signPageTaskList(): String {
         return RequestManager.requestString(
@@ -219,6 +320,34 @@ object AntMemberRpcCall {
         return RequestManager.requestString(
             "com.alipay.wealthgoldtwa.goldbill.v2.index.collect",
             """[{$str"trigger":"Y"}]"""
+        )
+    }
+
+    @JvmStatic
+    fun goldBillCollect(
+        campId: String? = null,
+        campScene: String? = null,
+        from: String? = null,
+        directModeDisableCollect: Boolean? = null
+    ): String {
+        val args = JSONObject().apply {
+            if (!campId.isNullOrBlank()) {
+                put("campId", campId)
+            }
+            if (!campScene.isNullOrBlank()) {
+                put("campScene", campScene)
+            }
+            if (!from.isNullOrBlank()) {
+                put("from", from)
+            }
+            if (directModeDisableCollect != null) {
+                put("directModeDisableCollect", directModeDisableCollect)
+            }
+            put("trigger", "Y")
+        }
+        return RequestManager.requestString(
+            "com.alipay.wealthgoldtwa.goldbill.v2.index.collect",
+            JSONArray().put(args).toString()
         )
     }
 
@@ -339,7 +468,7 @@ object AntMemberRpcCall {
     fun feedBackSesameTask(taskTemplateId: String): String {
         return RequestManager.requestString(
             "com.antgroup.zmxy.zmmemberop.biz.rpc.creditaccumulate.CreditAccumulateStrategyRpcManager.taskFeedback",
-            """[{"actionType":"TO_COMPLETE","bizType":"LIFE_RECORD","sceneCode":"$SESAME_TASK_SCENE_ZML","templateId":"$taskTemplateId","version":"$SESAME_TASK_VERSION"}]""",
+            """[{"actionType":"TO_COMPLETE","templateId":"$taskTemplateId"}]""",
             "zmmemberop", "taskFeedback", "CreditAccumulateStrategyRpcManager"
         )
     }
@@ -744,6 +873,23 @@ object AntMemberRpcCall {
     }
 
     @JvmStatic
+    fun queryGoldTicketHome(taskId: String = ""): String? {
+        return try {
+            val args = JSONObject().apply {
+                put("bizScene", "goldpage")
+                put("chInfo", "goldpage")
+                put("taskId", taskId)
+            }
+            RequestManager.requestString(
+                "com.alipay.wealthgoldtwa.needle.v2.index",
+                JSONArray().put(args).toString()
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    @JvmStatic
     fun queryWelfareHome(): String? {
         return try {
             val args = JSONObject().apply {
@@ -964,10 +1110,24 @@ object AntMemberRpcCall {
             }
 
             @JvmStatic
-            fun claimAward(): String {
+            fun alchemyQueryEntryList(): String {
+                val requestData = """[{"version":"$SESAME_CHECK_IN_VERSION"}]"""
+                return RequestManager.requestString(
+                    "com.antgroup.zmxy.zmmemberop.biz.rpc.AlchemyRpcManager.queryEntryList",
+                    requestData
+                )
+            }
+
+            @JvmStatic
+            fun claimAward(awardId: String = ""): String {
+                val requestData = if (awardId.isBlank()) {
+                    "[{}]"
+                } else {
+                    """[{"awardId":"$awardId"}]"""
+                }
                 return RequestManager.requestString(
                     "com.antgroup.zmxy.zmmemberop.biz.rpc.AlchemyRpcManager.claimAward",
-                    "[{}]"
+                    requestData
                 )
             }
 

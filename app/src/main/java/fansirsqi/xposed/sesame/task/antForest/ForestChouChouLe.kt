@@ -34,6 +34,7 @@ class ForestChouChouLe {
 
         // 屏蔽的任务名称关键词
         private val BLOCKED_NAMES = setOf("玩游戏得", "开宝箱")
+        private const val TASK_AWARD_ALREADY_FINISHED_CODE = "400000030"
 
         /**
          * 抽奖场景数据类
@@ -50,6 +51,11 @@ class ForestChouChouLe {
         // 扩展函数：简化 JSON 解析和检查
         private fun String.toJson(): JSONObject? = runCatching { JSONObject(this) }.getOrNull()
         private fun JSONObject.check(): Boolean = ResChecker.checkRes(TAG, this)
+        private fun JSONObject.isTaskAwardAlreadyFinished(): Boolean {
+            val code = optString("code")
+            val desc = optString("desc")
+            return code == TASK_AWARD_ALREADY_FINISHED_CODE || desc.contains("任务已完结")
+        }
 
         // 动态获取抽奖场景配置
         private fun getScenes(): List<Scene> {
@@ -279,6 +285,7 @@ class ForestChouChouLe {
         return when (taskStatus) {
             TaskStatus.TODO.name -> handleTodoTask(s, taskName, taskCode, taskType)
             TaskStatus.FINISHED.name -> handleFinishedTask(s, taskName, taskCode, taskType)
+            "COMPLETE" -> handleFinishedTask(s, taskName, taskCode, taskType)
             else -> false
         }
     }
@@ -324,6 +331,9 @@ class ForestChouChouLe {
         return if (res != null && res.check()) {
             Log.forest("${s.name} 🧾 $name 奖励领取成功")
             true
+        } else if (res != null && res.isTaskAwardAlreadyFinished()) {
+            Log.record("${s.name} 奖励已领取: $name")
+            false
         } else {
             Log.error(TAG, "${s.name} 奖励领取失败: $name")
             false

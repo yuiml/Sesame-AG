@@ -99,6 +99,9 @@ class ChouChouLe {
     private fun doChouchoule(drawType: String): Boolean {
         var doubleCheck: Boolean
         try {
+            runCatching {
+                AntFarmRpcCall.refinedOperation("DRAW_MACHINE", "antfarm_villa", "RPC")
+            }
             do {
                 doubleCheck = false
                 val jo = JSONObject(AntFarmRpcCall.chouchouleListFarmTask(drawType))
@@ -112,7 +115,7 @@ class ChouChouLe {
 
                 for (task in tasks) {
                     if (TaskStatus.FINISHED.name == task.taskStatus) {
-                        if (receiveTaskAward(drawType, task.taskId)) {
+                        if (receiveTaskAward(drawType, task)) {
                             GlobalThreadPools.sleepCompat(300L)
                             doubleCheck = true
                         }
@@ -181,7 +184,7 @@ class ChouChouLe {
                 JSONObject(AntFarmRpcCall.queryDrawMachineActivity_New("dailyDrawMachine", "ipDrawMachine"))
             }
             if (!ResChecker.checkRes(TAG, drawJo)) return false
-            val drawTimes = drawJo.optInt("drawTimes", 0)
+            val drawTimes = extractDrawTimes(drawJo)
             if (drawTimes > 0) return false
 
             true
@@ -217,6 +220,23 @@ class ChouChouLe {
             resData?.optString("desc").orEmpty(),
             resData?.optString("memo").orEmpty()
         ).firstOrNull { it.isNotBlank() }.orEmpty()
+    }
+
+    private fun extractDrawTimes(jo: JSONObject): Int {
+        val userInfo = jo.optJSONObject("userInfo")
+        val drawMachineActivity = jo.optJSONObject("drawMachineActivity")
+        return listOf(
+            jo.optInt("drawTimes", -1),
+            jo.optInt("leftDrawTimes", -1),
+            jo.optInt("quotaCanUse", -1),
+            jo.optInt("canUseTimes", -1),
+            jo.optInt("drawRightsTimes", -1),
+            userInfo?.optInt("leftDrawTimes", -1) ?: -1,
+            userInfo?.optInt("drawTimes", -1) ?: -1,
+            drawMachineActivity?.optInt("quotaCanUse", -1) ?: -1,
+            drawMachineActivity?.optInt("canUseTimes", -1) ?: -1,
+            drawMachineActivity?.optInt("drawRightsTimes", -1) ?: -1
+        ).firstOrNull { it >= 0 } ?: 0
     }
 
     private fun isLimitedTaskEndedResponse(jo: JSONObject): Boolean {
@@ -432,9 +452,13 @@ class ChouChouLe {
     /**
      * 领取任务奖励
      */
-    private fun receiveTaskAward(drawType: String, taskId: String): Boolean {
+    private fun receiveTaskAward(drawType: String, task: TaskInfo): Boolean {
         try {
-            val s = AntFarmRpcCall.chouchouleReceiveFarmTaskAward(drawType, taskId)
+            val s = AntFarmRpcCall.chouchouleReceiveFarmTaskAward(
+                drawType,
+                task.taskId,
+                task.awardType
+            )
             val jo = JSONObject(s)
             if (ResChecker.checkRes(TAG, jo)) {
                 return true
@@ -468,9 +492,10 @@ class ChouChouLe {
                 return true
             }
 
-            var remainingTimes = jo.optInt("drawTimes", 0)
+            var remainingTimes = extractDrawTimes(jo)
             if (remainingTimes <= 0) {
-                return handleIpDrawLegacy()
+                Log.record(TAG, "IP抽抽乐当前无可用次数，跳过旧版兜底接口")
+                return true
             }
             var allSuccess = true
             Log.record(TAG, "IP抽抽乐剩余次数: $remainingTimes")
@@ -524,9 +549,10 @@ class ChouChouLe {
                 return true
             }
 
-            var remainingTimes = jo.optInt("drawTimes", 0)
+            var remainingTimes = extractDrawTimes(jo)
             if (remainingTimes <= 0) {
-                return handleDailyDrawLegacy()
+                Log.record(TAG, "日常抽抽乐当前无可用次数，跳过旧版兜底接口")
+                return true
             }
             var allSuccess = true
 

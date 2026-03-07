@@ -249,6 +249,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
     private var bubbleBoostTime: ListJoinCommaToStringModelField? = null
 
     private val forestTaskTryCount: ConcurrentHashMap<String, AtomicInteger> = ConcurrentHashMap<String, AtomicInteger>()
+    private var lastPatrolId: Int = 0
 
     private var jsonCollectMap: MutableSet<String?> = HashSet()
 
@@ -3288,32 +3289,38 @@ class AntForest : ModelTask(), EnergyCollectCallback {
      */
     private fun dailyTask(forestSignVOList: JSONArray): Int {
         try {
-            val forestSignVO = forestSignVOList.getJSONObject(0)
-            val currentSignKey = forestSignVO.getString("currentSignKey") // 当前签到的 key
-            val signId = forestSignVO.getString("signId") // 签到ID
-            val sceneCode = forestSignVO.getString("sceneCode") // 场景代码
-            val signRecords = forestSignVO.getJSONArray("signRecords") // 签到记录
-            for (i in 0..<signRecords.length()) { //遍历签到记录
-                val signRecord = signRecords.getJSONObject(i)
-                val signKey = signRecord.getString("signKey")
-                val awardCount = signRecord.optInt("awardCount", 0)
-                if (signKey == currentSignKey && !signRecord.getBoolean("signed")) {
-                    val joSign = JSONObject(
-                        AntForestRpcCall.antiepSign(
-                            signId,
-                            UserMap.currentUid ?: return 0,
-                            sceneCode
+            var totalAwardCount = 0
+            for (signIndex in 0..<forestSignVOList.length()) {
+                val forestSignVO = forestSignVOList.optJSONObject(signIndex) ?: continue
+                val currentSignKey = forestSignVO.optString("currentSignKey") // 当前签到的 key
+                val signId = forestSignVO.optString("signId") // 签到ID
+                val sceneCode = forestSignVO.optString("sceneCode") // 场景代码
+                val signRecords = forestSignVO.optJSONArray("signRecords") ?: continue // 签到记录
+                if (currentSignKey.isEmpty() || signId.isEmpty() || sceneCode.isEmpty()) {
+                    continue
+                }
+                for (i in 0..<signRecords.length()) { //遍历签到记录
+                    val signRecord = signRecords.optJSONObject(i) ?: continue
+                    val signKey = signRecord.optString("signKey")
+                    val awardCount = signRecord.optInt("awardCount", 0)
+                    if (signKey == currentSignKey && !signRecord.optBoolean("signed", true)) {
+                        val joSign = JSONObject(
+                            AntForestRpcCall.antiepSign(
+                                signId,
+                                UserMap.currentUid ?: return totalAwardCount,
+                                sceneCode
+                            )
                         )
-                    )
-                    GlobalThreadPools.sleepCompat(300) // 等待300毫秒
-                    if (ResChecker.checkRes(TAG + "森林签到失败:", joSign)) {
-                        Log.forest("森林签到📆成功")
-                        return awardCount
+                        GlobalThreadPools.sleepCompat(300) // 等待300毫秒
+                        if (ResChecker.checkRes(TAG + "森林签到失败:", joSign)) {
+                            Log.forest("森林签到📆成功")
+                            totalAwardCount += awardCount
+                        }
+                        break
                     }
-                    break
                 }
             }
-            return 0 // 如果没有签到，则返回 0
+            return totalAwardCount
         } catch (e: Exception) {
             Log.printStackTrace(e)
             return 0
@@ -3365,14 +3372,20 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                         val sceneCode = taskBaseInfo.getString("sceneCode") // 获取场景代码
                         val taskStatus = taskBaseInfo.getString("taskStatus") // 获取任务状态
 
-                        val bizInfo = JSONObject(taskBaseInfo.getString("bizInfo")) // 获取业务信息
+                        val bizInfo = taskBaseInfo.optString("bizInfo")
+                            .takeIf { it.isNotEmpty() }
+                            ?.let(::JSONObject) ?: JSONObject() // 获取业务信息
                         val taskTitle = bizInfo.optString("taskTitle", taskType) // 获取任务标题
 
-                        val taskRights = JSONObject(taskInfo.getString("taskRights")) // 获取任务权益
+                        val taskRights = when (val rawTaskRights = taskInfo.opt("taskRights")) {
+                            is JSONObject -> rawTaskRights
+                            is String -> JSONObject(rawTaskRights)
+                            else -> JSONObject()
+                        } // 获取任务权益
                         val awardCount = taskRights.optInt("awardCount", 0) // 获取奖励数量
 
                         // 判断任务状态
-                        if (TaskStatus.FINISHED.name == taskStatus) {
+                        if (TaskStatus.FINISHED.name == taskStatus || "COMPLETE" == taskStatus) {
                             // 领取任务奖励
                             val joAward = JSONObject(
                                 AntForestRpcCall.receiveTaskAward(
@@ -3889,6 +3902,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                     val currentNode = userPatrol.getInt("currentNode")
                     val currentStatus = userPatrol.getString("currentStatus")
                     val patrolId = userPatrol.getInt("patrolId")
+                    lastPatrolId = patrolId
                     val chance = userPatrol.getJSONObject("chance")
                     val leftChance = chance.getInt("leftChance")
                     val leftStep = chance.getInt("leftStep")
@@ -4067,7 +4081,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
     private fun queryAnimalAndPiece() {
         try {
             // 调用远程接口查询动物及碎片信息
-            val response = JSONObject(AntForestRpcCall.queryAnimalAndPiece(0))
+            val response = JSONObject(AntForestRpcCall.queryAnimalAndPiece(0, lastPatrolId))
             val resultCode = response.optString("resultCode")
             // 检查接口调用是否成功
             if ("SUCCESS" != resultCode) {

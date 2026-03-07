@@ -19,6 +19,7 @@ import fansirsqi.xposed.sesame.util.RandomUtil
 import fansirsqi.xposed.sesame.util.ResChecker
 import fansirsqi.xposed.sesame.util.TaskBlacklist
 import fansirsqi.xposed.sesame.util.maps.UserMap
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
 
@@ -27,6 +28,7 @@ class AntOrchard : ModelTask() {
         private val TAG = AntOrchard::class.java.simpleName
         private const val STATUS_YEB_WATER_COUNT = "ANTORCHARD_SPREAD_MANURE_COUNT_YEB"
         private const val STATUS_MONEY_TREE_COLLECTED = "ANTORCHARD_MONEY_TREE_COLLECTED"
+        private const val STATUS_YEB_EXP_GOLD_TASK_PREFIX = "ANTORCHARD_YEB_EXP_GOLD_TASK"
     }
 
     private var userId: String? = UserMap.currentUid
@@ -156,6 +158,7 @@ class AntOrchard : ModelTask() {
             if (receiveOrchardTaskAward.value == true) {
                 doOrchardDailyTask(userId!!)
                 triggerTbTask()
+                handleYebExpGoldTasks()
             }
 
             // 摇钱树余额奖励 (每天7点后)
@@ -393,6 +396,401 @@ class AntOrchard : ModelTask() {
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "receiveMoneyTreeReward err:", t)
         }
+    }
+
+    private fun handleYebExpGoldTasks() {
+        try {
+            val enterSceneResponse = JSONObject(AntOrchardRpcCall.refinedOperation())
+            if (enterSceneResponse.optString("resultCode").isNotEmpty() &&
+                enterSceneResponse.optString("resultCode") != "100"
+            ) {
+                Log.record(
+                    TAG,
+                    "余额宝体验金任务场景进入异常: ${
+                        enterSceneResponse.optString(
+                            "resultDesc",
+                            enterSceneResponse.toString()
+                        )
+                    }"
+                )
+            }
+
+            var queryResponse = JSONObject(AntOrchardRpcCall.queryYebExpGoldMain())
+            if (!isYebExpGoldSuccess(queryResponse)) {
+                Log.record(
+                    TAG,
+                    "余额宝体验金任务查询失败: ${
+                        queryResponse.optString(
+                            "resultDesc",
+                            queryResponse.toString()
+                        )
+                    }"
+                )
+                return
+            }
+
+            val taskMap = LinkedHashMap<String, JSONObject>()
+            collectYebExpGoldTasks(queryResponse, taskMap)
+            val manualTaskTitles = LinkedHashSet<String>()
+            collectYebExpGoldManualTasks(taskMap, manualTaskTitles)
+            var handledTask = claimPendingYebExpGoldRewards(queryResponse, taskMap)
+
+            for ((taskId, task) in taskMap) {
+                val appletId = task.optString("appletId")
+                if (taskId.isBlank() || appletId.isBlank()) {
+                    continue
+                }
+
+                val title = getYebExpGoldTaskTitle(task, taskId)
+                when (task.optString("simplifiedStatus").lowercase()) {
+                    "not_done" -> {
+                        val successFlag = "$STATUS_YEB_EXP_GOLD_TASK_PREFIX::$taskId"
+                        if (Status.hasFlagToday(successFlag)) {
+                            continue
+                        }
+                        val prepareResponse =
+                            JSONObject(AntOrchardRpcCall.queryYebExpGoldMain(true, taskId))
+                        if (!isYebExpGoldSuccess(prepareResponse)) {
+                            Log.record(
+                                TAG,
+                                "余额宝体验金任务预处理失败[$title]: ${
+                                    prepareResponse.optString(
+                                        "resultDesc",
+                                        prepareResponse.toString()
+                                    )
+                                }"
+                            )
+                            continue
+                        }
+
+                        val claimedByCompleteList = claimPendingYebExpGoldRewards(
+                            prepareResponse,
+                            taskMap
+                        )
+                        if (!claimedByCompleteList) {
+                            val completeResponse =
+                                JSONObject(AntOrchardRpcCall.completeYebExpGoldTask(appletId, taskId))
+                            if (isYebExpGoldSuccess(completeResponse)) {
+                                logYebExpGoldRewards(title, completeResponse)
+                                Status.setFlagToday(successFlag)
+                                handledTask = true
+                            } else {
+                                Log.record(
+                                    TAG,
+                                    "余额宝体验金任务领取失败[$title]: ${
+                                        completeResponse.optString(
+                                            "resultDesc",
+                                            completeResponse.toString()
+                                        )
+                                    }"
+                                )
+                            }
+                        } else {
+                            handledTask = true
+                        }
+                        CoroutineUtils.sleepCompat(executeIntervalInt.toLong())
+                    }
+
+                    "not_sign" -> Unit
+                }
+            }
+
+            queryResponse = JSONObject(AntOrchardRpcCall.queryYebExpGoldMain())
+            if (isYebExpGoldSuccess(queryResponse)) {
+                handledTask = claimPendingYebExpGoldRewards(queryResponse, taskMap) || handledTask
+                handledTask = handleYebExpGoldExchange(queryResponse) || handledTask
+            } else {
+                Log.record(
+                    TAG,
+                    "余额宝体验金任务刷新失败: ${
+                        queryResponse.optString(
+                            "resultDesc",
+                            queryResponse.toString()
+                        )
+                    }"
+                )
+            }
+
+            if (!handledTask && manualTaskTitles.isEmpty()) {
+                Log.record(TAG, "余额宝体验金任务: 未发现可自动处理项目")
+            }
+            if (manualTaskTitles.isNotEmpty()) {
+                Log.record(TAG, "余额宝体验金任务待手动完成: ${manualTaskTitles.joinToString("、")}")
+            }
+        } catch (t: Throwable) {
+            Log.printStackTrace(TAG, "handleYebExpGoldTasks err:", t)
+        }
+    }
+
+    private fun collectYebExpGoldManualTasks(
+        taskMap: Map<String, JSONObject>,
+        manualTaskTitles: MutableSet<String>
+    ) {
+        for ((taskId, task) in taskMap) {
+            if (task.optString("simplifiedStatus").lowercase() == "not_sign") {
+                manualTaskTitles.add(getYebExpGoldTaskTitle(task, taskId))
+            }
+        }
+    }
+
+    private fun claimPendingYebExpGoldRewards(
+        queryResponse: JSONObject,
+        taskMap: Map<String, JSONObject>
+    ): Boolean {
+        val completeList = getYebExpGoldCompleteList(queryResponse)
+        var claimed = false
+        for (index in 0 until completeList.length()) {
+            val rewardItem = completeList.optJSONObject(index) ?: continue
+            val taskId = rewardItem.optString("taskId")
+            if (taskId.isBlank()) {
+                continue
+            }
+            val successFlag = "$STATUS_YEB_EXP_GOLD_TASK_PREFIX::$taskId"
+            if (Status.hasFlagToday(successFlag)) {
+                continue
+            }
+
+            val title = getYebExpGoldCompletedTitle(rewardItem, taskMap[taskId], taskId)
+            val appletId = getYebExpGoldCompleteAppletId(rewardItem, taskMap[taskId])
+            if (appletId.isBlank()) {
+                Log.record(TAG, "余额宝体验金任务领取缺少 appletId[$title]")
+                continue
+            }
+
+            val completeResponse = JSONObject(AntOrchardRpcCall.completeYebExpGoldTask(appletId, taskId))
+            if (isYebExpGoldSuccess(completeResponse)) {
+                logYebExpGoldRewards(title, completeResponse)
+                Status.setFlagToday(successFlag)
+                claimed = true
+            } else {
+                Log.record(
+                    TAG,
+                    "余额宝体验金任务领取失败[$title]: ${
+                        completeResponse.optString(
+                            "resultDesc",
+                            completeResponse.toString()
+                        )
+                    }"
+                )
+            }
+            CoroutineUtils.sleepCompat(executeIntervalInt.toLong())
+        }
+        return claimed
+    }
+
+    private fun getYebExpGoldCompleteList(queryResponse: JSONObject): JSONArray {
+        return queryResponse.optJSONObject("resultData")
+            ?.optJSONObject("taskData")
+            ?.optJSONArray("completeList")
+            ?: JSONArray()
+    }
+
+    private fun getYebExpGoldCompletedTitle(
+        rewardItem: JSONObject,
+        task: JSONObject?,
+        defaultTitle: String
+    ): String {
+        return rewardItem.optJSONObject("ext")
+            ?.optJSONObject("TASK_MORPHO_DETAIL")
+            ?.optString("title")
+            .orEmpty()
+            .ifBlank {
+                rewardItem.optJSONObject("ext")
+                    ?.optJSONObject("TASK_MORPHO_DETAIL")
+                    ?.optString("taskMainTitle")
+                    .orEmpty()
+            }
+            .ifBlank { task?.let { getYebExpGoldTaskTitle(it, defaultTitle) }.orEmpty() }
+            .ifBlank { defaultTitle }
+    }
+
+    private fun getYebExpGoldCompleteAppletId(
+        rewardItem: JSONObject,
+        task: JSONObject?
+    ): String {
+        val extInfo = rewardItem.optJSONArray("prizeSendOrderDTO")
+            ?.optJSONObject(0)
+            ?.optJSONObject("extInfo")
+        return task?.optString("appletId").orEmpty()
+            .ifBlank { rewardItem.optString("appletId") }
+            .ifBlank { extInfo?.optString("TASK_CENTER_ID").orEmpty() }
+            .ifBlank { extInfo?.optString("TASK_CEN_ID").orEmpty() }
+    }
+
+    private fun handleYebExpGoldExchange(queryResponse: JSONObject): Boolean {
+        val resultData = queryResponse.optJSONObject("resultData") ?: return false
+        val balanceText = resultData.optString("balance")
+        val balance = balanceText.toDoubleOrNull() ?: return false
+        val threshold = when (val thresholdValue = resultData.opt("subThreshold")) {
+            is Number -> thresholdValue.toDouble()
+            is String -> thresholdValue.toDoubleOrNull() ?: 0.0
+            else -> 0.0
+        }
+
+        if (balance <= 0.0 || (threshold > 0.0 && balance < threshold)) {
+            return false
+        }
+
+        val trialAssetResponse = JSONObject(AntOrchardRpcCall.queryYebTrialAsset())
+        if (!isYebExpGoldSuccess(trialAssetResponse)) {
+            Log.record(
+                TAG,
+                "余额宝体验金资产查询失败: ${
+                    trialAssetResponse.optString(
+                        "resultDesc",
+                        trialAssetResponse.toString()
+                    )
+                }"
+            )
+            return false
+        }
+
+        val trialInfo = getYebTrialInfo(trialAssetResponse)
+        if (trialInfo == null) {
+            Log.record(TAG, "余额宝体验金兑换缺少试用资产信息")
+            return false
+        }
+
+        val campId = trialInfo.optString("promoCampId")
+        val prizeId = trialInfo.optString("promoPrizeId")
+        if (campId.isBlank() || prizeId.isBlank()) {
+            Log.record(TAG, "余额宝体验金兑换缺少活动参数")
+            return false
+        }
+
+        val exchangeResponse = JSONObject(
+            AntOrchardRpcCall.exchangeYebExpGold(
+                campId = campId,
+                prizeId = prizeId,
+                exchangeAmount = balanceText
+            )
+        )
+        if (!isYebExpGoldSuccess(exchangeResponse)) {
+            Log.record(
+                TAG,
+                "余额宝体验金兑换失败: ${
+                    exchangeResponse.optString(
+                        "resultDesc",
+                        exchangeResponse.toString()
+                    )
+                }"
+            )
+            return false
+        }
+
+        val couponId = exchangeResponse.optJSONObject("result")
+            ?.optString("equityNo")
+            .orEmpty()
+        if (couponId.isBlank()) {
+            Log.record(TAG, "余额宝体验金兑换成功但缺少激活凭证")
+            return false
+        }
+
+        val activeResponse = JSONObject(AntOrchardRpcCall.activeYebTrial(couponId))
+        if (!isYebExpGoldSuccess(activeResponse)) {
+            Log.record(
+                TAG,
+                "余额宝体验金激活失败: ${
+                    activeResponse.optString(
+                        "resultDesc",
+                        activeResponse.toString()
+                    )
+                }"
+            )
+            return false
+        }
+
+        val amountText = activeResponse.optJSONObject("amount")
+            ?.opt("amount")
+            ?.toString()
+            .orEmpty()
+            .ifBlank { balanceText }
+        val confirmDate = activeResponse.optString("confirmDate")
+        val profitDate = activeResponse.optString("profitDate")
+        val extraInfo = buildString {
+            if (confirmDate.isNotBlank()) {
+                append("[确认:$confirmDate]")
+            }
+            if (profitDate.isNotBlank()) {
+                append("[收益:$profitDate]")
+            }
+        }
+        Log.farm("余额宝体验金💰[兑换激活]#${amountText}元$extraInfo")
+        return true
+    }
+
+    private fun getYebTrialInfo(trialAssetResponse: JSONObject): JSONObject? {
+        val trialInfoList = trialAssetResponse.optJSONArray("trialInfoList") ?: return null
+        for (index in 0 until trialInfoList.length()) {
+            val trialInfo = trialInfoList.optJSONObject(index) ?: continue
+            if (trialInfo.optString("promoCampId").isNotBlank() &&
+                trialInfo.optString("promoPrizeId").isNotBlank()
+            ) {
+                return trialInfo
+            }
+        }
+        return null
+    }
+
+    private fun collectYebExpGoldTasks(
+        node: Any?,
+        taskMap: MutableMap<String, JSONObject>
+    ) {
+        when (node) {
+            is JSONObject -> {
+                val taskId = node.optString("taskId")
+                val appletId = node.optString("appletId")
+                if (taskId.isNotBlank() && appletId.isNotBlank() && node.has("simplifiedStatus")) {
+                    taskMap.putIfAbsent(taskId, node)
+                }
+                val keys = node.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    collectYebExpGoldTasks(node.opt(key), taskMap)
+                }
+            }
+
+            is JSONArray -> {
+                for (index in 0 until node.length()) {
+                    collectYebExpGoldTasks(node.opt(index), taskMap)
+                }
+            }
+        }
+    }
+
+    private fun isYebExpGoldSuccess(jo: JSONObject): Boolean {
+        return jo.optBoolean("success") || jo.optString("resultCode") == "100"
+    }
+
+    private fun getYebExpGoldTaskTitle(
+        task: JSONObject,
+        defaultTitle: String
+    ): String {
+        return task.optString("title")
+            .ifBlank { task.optString("taskMainTitle") }
+            .ifBlank { task.optJSONObject("taskExtProps")?.optString("title").orEmpty() }
+            .ifBlank { defaultTitle }
+    }
+
+    private fun logYebExpGoldRewards(
+        title: String,
+        response: JSONObject
+    ) {
+        val prizeSendOrderList = response.optJSONObject("result")
+            ?.optJSONArray("prizeSendOrderList")
+        if (prizeSendOrderList != null && prizeSendOrderList.length() > 0) {
+            for (index in 0 until prizeSendOrderList.length()) {
+                val prizeOrder = prizeSendOrderList.optJSONObject(index) ?: continue
+                val prizeName = prizeOrder.optString("prizeName")
+                if (prizeName.isNotBlank()) {
+                    Log.farm("摇钱树体验金💰[$title]#$prizeName")
+                } else {
+                    Log.farm("摇钱树体验金💰[$title]")
+                }
+            }
+            return
+        }
+        Log.farm("摇钱树体验金💰[$title]")
     }
 
     // 辅助方法：施肥后检测肥料礼盒
