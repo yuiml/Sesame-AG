@@ -4,29 +4,32 @@ import fansirsqi.xposed.sesame.hook.RequestManager
 import fansirsqi.xposed.sesame.util.maps.UserMap
 
 object AntOrchardRpcCall {
-    private const val VERSION = "20251209.01"
+    private const val VERSION = "20260204.01"
+    private const val DEFAULT_SOURCE = "ch_appcenter__chsub_9patch"
+    private const val YEB_SOURCE = "yaoqianshu_qiehuan"
 
     fun orchardIndex(): String {
-        return RequestManager.requestString("com.alipay.antfarm.orchardIndex",
-            "[{\"inHomepage\":\"true\",\"requestType\":\"NORMAL\",\"sceneCode\":\"ORCHARD\",\"source\":\"ch_appcenter__chsub_9patch\",\"version\":\""
-                    + VERSION + "\"}]");
+        return RequestManager.requestString(
+            "com.alipay.antfarm.orchardIndex",
+            "[{\"commonDegradeResult\":{\"deviceLevel\":\"high\",\"resultReason\":0,\"resultType\":0},\"darwinSceneList\":[\"gameListTwoOptimize\",\"hd_mode\",\"yebTreeTalk\",\"transferPopupYebSwitchMainTree\",\"yebLotteryPlus\",\"teamPlantNewStyle\",\"taskDarwGroup2\",\"awardPreviewExp\",\"storage\",\"fertiBagAB\"],\"growthExtInfo\":\"\",\"growthTask\":\"\",\"inHomepage\":true,\"requestType\":\"NORMAL\",\"sceneCode\":\"ORCHARD\",\"source\":\"$DEFAULT_SOURCE\",\"useWua\":\"\",\"version\":\"$VERSION\"}]"
+        )
     }
 
     /**
      * 获取额外信息（包含每日肥料、施肥礼盒）
      * @param from 来源：entry(首页), water(施肥后)
      */
-    fun extraInfoGet(from: String = "entry"): String {
+    fun extraInfoGet(from: String = "entry", source: String = DEFAULT_SOURCE): String {
         return RequestManager.requestString(
             "com.alipay.antorchard.extraInfoGet",
-            "[{\"from\":\"$from\",\"requestType\":\"NORMAL\",\"sceneCode\":\"FUGUO\",\"source\":\"ch_appcenter__chsub_9patch\",\"version\":\"$VERSION\"}]"
+            "[{\"from\":\"$from\",\"requestType\":\"NORMAL\",\"sceneCode\":\"FUGUO\",\"source\":\"$source\",\"version\":\"$VERSION\"}]"
         )
     }
 
-    fun extraInfoSet(): String {
+    fun extraInfoSet(source: String = DEFAULT_SOURCE): String {
         return RequestManager.requestString(
             "com.alipay.antorchard.extraInfoSet",
-            "[{\"bizCode\":\"fertilizerPacket\",\"bizParam\":{\"action\":\"queryCollectFertilizerPacket\"},\"requestType\":\"NORMAL\",\"sceneCode\":\"ORCHARD\",\"source\":\"ch_appcenter__chsub_9patch\",\"version\":\"$VERSION\"}]"
+            "[{\"bizCode\":\"fertilizerPacket\",\"bizParam\":{\"action\":\"queryCollectFertilizerPacket\"},\"requestType\":\"NORMAL\",\"sceneCode\":\"ORCHARD\",\"source\":\"$source\",\"version\":\"$VERSION\"}]"
         )
     }
 
@@ -64,10 +67,10 @@ object AntOrchardRpcCall {
      * 切换种植场景
      * @param plantScene main(果树) 或 yeb(摇钱树)
      */
-    fun switchPlantScene(plantScene: String): String {
+    fun switchPlantScene(plantScene: String, source: String = DEFAULT_SOURCE): String {
         return RequestManager.requestString(
             "com.alipay.antorchard.switchPlantScene",
-            "[{\"plantScene\":\"$plantScene\",\"requestType\":\"NORMAL\",\"sceneCode\":\"ORCHARD\",\"source\":\"ch_appcenter__chsub_9patch\",\"version\":\"$VERSION\"}]"
+            "[{\"plantScene\":\"$plantScene\",\"requestType\":\"NORMAL\",\"sceneCode\":\"ORCHARD\",\"source\":\"$source\",\"version\":\"$VERSION\"}]"
         )
     }
 
@@ -85,17 +88,22 @@ object AntOrchardRpcCall {
         )
     }
 
-    fun receiveTaskAward(sceneCode: String, taskType: String): String {
+    fun receiveTaskAward(
+        sceneCode: String,
+        taskType: String,
+        source: String = DEFAULT_SOURCE,
+        ignoreLimit: Boolean = true
+    ): String {
         return RequestManager.requestString(
             "com.alipay.antiep.receiveTaskAward",
-            "[{\"ignoreLimit\":true,\"requestType\":\"NORMAL\",\"sceneCode\":\"$sceneCode\",\"source\":\"ch_alipaysearch__chsub_normal\",\"taskType\":\"$taskType\",\"version\":\"$VERSION\"}]"
+            "[{\"ignoreLimit\":$ignoreLimit,\"requestType\":\"NORMAL\",\"sceneCode\":\"$sceneCode\",\"source\":\"$source\",\"taskType\":\"$taskType\",\"version\":\"$VERSION\"}]"
         )
     }
 
-    fun orchardListTask(): String {
+    fun orchardListTask(source: String = DEFAULT_SOURCE): String {
         return RequestManager.requestString(
             "com.alipay.antfarm.orchardListTask",
-            "[{\"plantHiddenMMC\":\"false\",\"requestType\":\"NORMAL\",\"sceneCode\":\"ORCHARD\",\"source\":\"zhifujianglizhitiao1000\",\"version\":\"$VERSION\"}]"
+            "[{\"addWidget\":false,\"appMode\":\"normal\",\"enableSwitchSceneList\":[\"main\",\"yeb\"],\"enableTeamType\":[\"help\",\"team\"],\"hasYebActivityEntrance\":true,\"plantHiddenMMC\":\"false\",\"requestType\":\"NORMAL\",\"sceneCode\":\"ORCHARD\",\"source\":\"$source\",\"version\":\"$VERSION\"}]"
         )
     }
 
@@ -106,17 +114,26 @@ object AntOrchardRpcCall {
         )
     }
 
-    fun finishTask(userId: String, sceneCode: String, taskType: String): String {
+    fun finishTask(
+        userId: String,
+        sceneCode: String,
+        taskType: String,
+        source: String = DEFAULT_SOURCE
+    ): String {
         return RequestManager.requestString(
             "com.alipay.antiep.finishTask",
-            "[{\"outBizNo\":\"${userId}${System.currentTimeMillis()}\",\"requestType\":\"NORMAL\",\"sceneCode\":\"$sceneCode\",\"source\":\"ch_appcenter__chsub_9patch\",\"taskType\":\"$taskType\",\"userId\":\"$userId\",\"version\":\"$VERSION\"}]"
+            "[{\"outBizNo\":\"${userId}${System.currentTimeMillis()}\",\"requestType\":\"NORMAL\",\"sceneCode\":\"$sceneCode\",\"source\":\"$source\",\"taskType\":\"$taskType\",\"userId\":\"$userId\",\"version\":\"$VERSION\"}]"
         )
     }
 
-    fun triggerTbTask(taskId: String, taskPlantType: String): String {
+    fun triggerTbTask(
+        taskId: String,
+        taskPlantType: String,
+        source: String = DEFAULT_SOURCE
+    ): String {
         return RequestManager.requestString(
             "com.alipay.antfarm.triggerTbTask",
-            "[{\"requestType\":\"NORMAL\",\"sceneCode\":\"ORCHARD\",\"source\":\"ch_appcenter__chsub_9patch\",\"taskId\":\"$taskId\",\"taskPlantType\":\"$taskPlantType\",\"version\":\"$VERSION\"}]"
+            "[{\"requestType\":\"NORMAL\",\"sceneCode\":\"ORCHARD\",\"source\":\"$source\",\"taskId\":\"$taskId\",\"taskPlantType\":\"$taskPlantType\",\"version\":\"$VERSION\"}]"
         )
     }
 

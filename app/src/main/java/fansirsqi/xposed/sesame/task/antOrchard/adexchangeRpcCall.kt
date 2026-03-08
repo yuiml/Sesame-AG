@@ -9,14 +9,14 @@ object XLightRpcCall {
 
     // 固定 SDK 信息
     private const val AD_COMPONENT_TYPE = "FEEDS"
-    private const val AD_COMPONENT_VERSION = "4.28.66"
+    private const val AD_COMPONENT_VERSION = "4.29.46"
     private const val ENABLE_FUSION = true
-    private const val NETWORK_TYPE = "WIFI"
-    private const val PAGE_NO = 1
+    private const val NETWORK_TYPE = "WWAN"
+    private const val PAGE_NO = 2
     private const val UNION_APP_ID = "2060090000304921"
-    private const val XLIGHT_RUNTIME_SDK_VERSION = "4.28.66"
+    private const val XLIGHT_RUNTIME_SDK_VERSION = "4.29.46"
     private const val XLIGHT_SDK_TYPE = "h5"
-    private const val XLIGHT_SDK_VERSION = "4.28.66"
+    private const val XLIGHT_SDK_VERSION = "4.29.46"
 
     /**
      * 调用 xlightPlugin
@@ -28,14 +28,22 @@ object XLightRpcCall {
         pageUrl: String,
         pageFrom: String,
         session: String,
-        spaceCode: String
+        spaceCode: String,
+        referToken: String? = null,
+        playingPageInfo: String? = null,
+        pageNo: Int = PAGE_NO,
+        networkType: String = NETWORK_TYPE
     ): String {
         return try {
 
             // positionRequest
             val positionRequest = JSONObject().apply {
                 put("extMap", JSONObject())
-                put("referInfo", JSONObject())     // 空对象，与你的示例一致
+                put("referInfo", JSONObject().apply {
+                    if (!referToken.isNullOrBlank()) {
+                        put("referToken", referToken)
+                    }
+                })
                 put("searchInfo", JSONObject())
                 put("spaceCode", spaceCode)
             }
@@ -45,10 +53,13 @@ object XLightRpcCall {
                 put("adComponentType", AD_COMPONENT_TYPE)
                 put("adComponentVersion", AD_COMPONENT_VERSION)
                 put("enableFusion", ENABLE_FUSION)
-                put("networkType", NETWORK_TYPE)
+                put("networkType", if (networkType.isBlank()) NETWORK_TYPE else networkType)
                 put("pageFrom", pageFrom)
-                put("pageNo", PAGE_NO)
+                put("pageNo", if (pageNo > 0) pageNo else PAGE_NO)
                 put("pageUrl", pageUrl)
+                if (!playingPageInfo.isNullOrBlank()) {
+                    put("playingPageInfo", playingPageInfo)
+                }
                 put("session", session)
                 put("unionAppId", UNION_APP_ID)
                 put("usePlayLink", "true")
@@ -87,15 +98,19 @@ object XLightRpcCall {
     fun finishTask(
         playBizId: String,
         playEventInfo: JSONObject,
-        iepTaskSceneCode: String,
-        iepTaskType: String
+        iepTaskSceneCode: String? = null,
+        iepTaskType: String? = null
     ): String {
         return try {
 
             // extendInfo
             val extendInfo = JSONObject().apply {
-                put("iepTaskSceneCode", iepTaskSceneCode)
-                put("iepTaskType", iepTaskType)
+                if (!iepTaskSceneCode.isNullOrBlank()) {
+                    put("iepTaskSceneCode", iepTaskSceneCode)
+                }
+                if (!iepTaskType.isNullOrBlank()) {
+                    put("iepTaskType", iepTaskType)
+                }
             }
 
             // 单条任务对象
