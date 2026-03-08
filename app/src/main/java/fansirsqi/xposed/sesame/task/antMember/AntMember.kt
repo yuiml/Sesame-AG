@@ -419,7 +419,7 @@ class AntMember : ModelTask() {
             record("$TAG.", "开始执行信誉任务领取")
             var resp: String?
             try {
-                resp = AntMemberRpcCall.Zmxy.queryGrowthGuideToDoList("yuebao_7d", "1.0.2025.10.27")
+                resp = AntMemberRpcCall.Zmxy.queryGrowthGuideToDoList()
             } catch (e: Throwable) {
                 Log.printStackTrace("$TAG.handleGrowthGuideTasks.queryGrowthGuideToDoList", e)
                 return
@@ -2783,7 +2783,7 @@ class AntMember : ModelTask() {
                 }
             }
 
-            if (!reportSesameTaskFeedback(templateId, title, "芝麻炼金⚗️")) {
+            if (!reportSesameTaskFeedback(task, title, "芝麻炼金⚗️", version = "alchemy")) {
                 continue
             }
 
@@ -3183,32 +3183,53 @@ class AntMember : ModelTask() {
         @SuppressLint("DefaultLocale")
         fun queryAndCollect() {
             try {
-                // 1. 查询进度球状态
-                val queryResp = AntMemberRpcCall.Zmxy.queryScoreProgress()
-                if (queryResp.isEmpty()) return
+                for (attempt in 0..1) {
+                    val queryResp = AntMemberRpcCall.Zmxy.queryScoreProgress()
+                    if (queryResp.isEmpty()) {
+                        return
+                    }
 
-                val json = JSONObject(queryResp)
+                    val json = JSONObject(queryResp)
+                    if (!ResChecker.checkRes(TAG, json)) {
+                        if (attempt == 0) {
+                            record(TAG, "攒芝麻分🎁[查询进度球失败，1.2秒后重试]")
+                            Thread.sleep(1200)
+                            continue
+                        }
+                        return
+                    }
 
-                // 检查 success
-                if (!ResChecker.checkRes(TAG, json)) return
+                    val totalWait = json.optJSONObject("totalWaitProcessVO") ?: return
+                    val idList = totalWait.optJSONArray("totalProgressIdList")
+                    if (idList == null || idList.length() == 0) {
+                        if (attempt == 0) {
+                            Thread.sleep(1200)
+                            continue
+                        }
+                        return
+                    }
 
-                val totalWait = json.optJSONObject("totalWaitProcessVO") ?: return
+                    val collectResp = AntMemberRpcCall.Zmxy.collectProgressBall(idList) ?: return
+                    val collectJson = JSONObject(collectResp)
+                    if (!ResChecker.checkRes(TAG, collectJson)) {
+                        if (attempt == 0) {
+                            record(TAG, "攒芝麻分🎁[领取进度球失败，1.2秒后重试]")
+                            Thread.sleep(1200)
+                            continue
+                        }
+                        Log.error(TAG, "攒芝麻分🎁[领取失败]#$collectResp")
+                        return
+                    }
 
-                val idList = totalWait.optJSONArray("totalProgressIdList")
-                if (idList == null || idList.length() == 0) return
-
-                // 直接传 JSONArray
-                val collectResp = AntMemberRpcCall.Zmxy.collectProgressBall(idList) ?: return
-
-                val collectJson = JSONObject(collectResp)
-
-                Log.other(
-                    TAG, String.format(
-                        "领取完成 → 本次加速进度: %d, 当前加速倍率: %.2f",
-                        collectJson.optInt("collectedAccelerateProgress", -1),
-                        collectJson.optDouble("currentAccelerateValue", -1.0)
+                    Log.other(
+                        TAG, String.format(
+                            "领取完成 → 本次加速进度: %d, 当前加速倍率: %.2f",
+                            collectJson.optInt("collectedAccelerateProgress", -1),
+                            collectJson.optDouble("currentAccelerateValue", -1.0)
+                        )
                     )
-                )
+                    return
+                }
             } catch (e: Exception) {
                 Log.printStackTrace(TAG + "queryAndCollect err", e)
             }
@@ -3309,11 +3330,27 @@ class AntMember : ModelTask() {
             try {
                 val s = AntMemberRpcCall.queryHome()
                 val jo = JSONObject(s)
+                if (ResChecker.checkRes(TAG, jo)) {
+                    val entrance = jo.optJSONObject("entrance") ?: return false
+                    if (!entrance.optBoolean("openApp")) {
+                        Log.other("芝麻信用💳[未开通芝麻信用]")
+                        return false
+                    }
+                    return true
+                }
+                record(TAG, "芝麻信用💳[V7首页探活失败，回退V8]")
+            } catch (t: Throwable) {
+                record(TAG, "芝麻信用💳[V7首页探活异常，回退V8]#${t.message}")
+            }
+
+            try {
+                val s = AntMemberRpcCall.queryHomeV8()
+                val jo = JSONObject(s)
                 if (!ResChecker.checkRes(TAG, jo)) {
-                    Log.error("$TAG.checkSesameCanRun.queryHome", "芝麻信用💳[首页响应失败]#$s")
+                    Log.error("$TAG.checkSesameCanRun.queryHomeV8", "芝麻信用💳[首页响应失败]#$s")
                     return false
                 }
-                val entrance = jo.getJSONObject("entrance")
+                val entrance = jo.optJSONObject("entrance") ?: return false
                 if (!entrance.optBoolean("openApp")) {
                     Log.other("芝麻信用💳[未开通芝麻信用]")
                     return false
@@ -3393,23 +3430,89 @@ class AntMember : ModelTask() {
             autoAddToBlacklist(taskTitle, taskTitle, errorCode)
         }
 
-        private suspend fun reportSesameTaskFeedback(
-            templateId: String,
+        private suspend fun joinSesameTaskWithFallback(
+            taskTemplateId: String,
             taskTitle: String,
-            logPrefix: String
+            logPrefix: String,
+            primarySceneCode: String? = null
+        ): Pair<String, JSONObject> {
+            var joinRes = AntMemberRpcCall.joinSesameTask(taskTemplateId, primarySceneCode)
+            delay(200)
+            var joinJo = JSONObject(joinRes)
+            val joinResultCode = joinJo.optString("resultCode", joinJo.optString("errorCode", ""))
+            if (!ResChecker.checkRes(TAG, joinJo) &&
+                !primarySceneCode.isNullOrBlank() &&
+                "PROMISE_TODAY_FINISH_TIMES_LIMIT" != joinResultCode
+            ) {
+                record(TAG, "$logPrefix[领取任务扩展参数失败，回退简版参数]#$taskTitle")
+                joinRes = AntMemberRpcCall.joinSesameTask(taskTemplateId)
+                delay(200)
+                joinJo = JSONObject(joinRes)
+            }
+            return joinRes to joinJo
+        }
+
+        private suspend fun reportSesameTaskFeedback(
+            task: JSONObject,
+            taskTitle: String,
+            logPrefix: String,
+            version: String = "new",
+            sceneCode: String? = null,
+            preferExtended: Boolean = false
         ): Boolean {
-            val feedbackRes = AntMemberRpcCall.feedBackSesameTask(templateId)
-            delay(300)
-            val feedbackJo = JSONObject(feedbackRes)
-            if (ResChecker.checkRes(TAG, feedbackJo)) {
-                return true
+            val templateId = task.optString("templateId")
+            if (templateId.isBlank()) {
+                record(TAG, "$logPrefix[任务回调缺少templateId]#$taskTitle")
+                return false
             }
-            val errorCode = feedbackJo.optString("errorCode", feedbackJo.optString("resultCode", ""))
-            val resultView = feedbackJo.optString("resultView").ifEmpty {
-                feedbackJo.optString("errorMessage", feedbackRes)
+
+            val bizType = task.optString("bizType")
+            val hasExtendedArgs = bizType.isNotBlank() && !sceneCode.isNullOrBlank()
+            val feedbackAttempts = mutableListOf<Pair<String, suspend () -> String>>()
+            if (preferExtended && hasExtendedArgs) {
+                feedbackAttempts.add(
+                    "扩展参数" to suspend {
+                        AntMemberRpcCall.feedBackSesameTask(templateId, bizType, sceneCode, version)
+                    }
+                )
             }
-            Log.error(TAG, "$logPrefix[任务回调失败]#$taskTitle - $resultView")
-            autoBlacklistSesameTaskIfNeeded(taskTitle, errorCode, resultView)
+            feedbackAttempts.add("简版参数" to suspend { AntMemberRpcCall.feedBackSesameTask(templateId) })
+            if (!preferExtended && hasExtendedArgs) {
+                feedbackAttempts.add(
+                    "扩展参数" to suspend {
+                        AntMemberRpcCall.feedBackSesameTask(templateId, bizType, sceneCode, version)
+                    }
+                )
+            }
+
+            var lastErrorCode = ""
+            var lastResultView = ""
+            var lastFeedbackRes = ""
+            for ((index, attempt) in feedbackAttempts.withIndex()) {
+                val (attemptLabel, call) = attempt
+                val feedbackRes = call()
+                lastFeedbackRes = feedbackRes
+                delay(300)
+                val feedbackJo = JSONObject(feedbackRes)
+                if (ResChecker.checkRes(TAG, feedbackJo)) {
+                    return true
+                }
+                lastErrorCode = feedbackJo.optString(
+                    "errorCode",
+                    feedbackJo.optString("resultCode", "")
+                )
+                lastResultView = feedbackJo.optString("resultView").ifEmpty {
+                    feedbackJo.optString("errorMessage", feedbackRes)
+                }
+                if (index < feedbackAttempts.lastIndex) {
+                    record(
+                        TAG,
+                        "$logPrefix[任务回调${attemptLabel}失败，尝试兼容参数]#$taskTitle - $lastResultView"
+                    )
+                }
+            }
+            Log.error(TAG, "$logPrefix[任务回调失败]#$taskTitle - $lastResultView")
+            autoBlacklistSesameTaskIfNeeded(taskTitle, lastErrorCode, lastResultView.ifEmpty { lastFeedbackRes })
             return false
         }
 
@@ -3531,9 +3634,14 @@ class AntMember : ModelTask() {
                         skippedCount++
                         continue
                     }
-                    s = AntMemberRpcCall.joinSesameTask(taskTemplateId)
-                    delay(200)
-                    responseObj = JSONObject(s)
+                    val joinResult = joinSesameTaskWithFallback(
+                        taskTemplateId,
+                        taskTitle,
+                        "芝麻信用💳",
+                        "zml"
+                    )
+                    s = joinResult.first
+                    responseObj = joinResult.second
                     val joinResultCode = responseObj.optString("resultCode", responseObj.optString("errorCode", ""))
                     if ("PROMISE_TODAY_FINISH_TIMES_LIMIT" == joinResultCode) {
                         joinLimitReached = true
@@ -3561,7 +3669,7 @@ class AntMember : ModelTask() {
                     }
                 }
 
-                if (!reportSesameTaskFeedback(taskTemplateId, taskTitle, "芝麻信用💳")) {
+                if (!reportSesameTaskFeedback(task, taskTitle, "芝麻信用💳", sceneCode = "zml", preferExtended = true)) {
                     skippedCount++
                     continue
                 }

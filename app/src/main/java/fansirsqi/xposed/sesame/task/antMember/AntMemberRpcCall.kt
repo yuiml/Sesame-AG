@@ -11,6 +11,7 @@ import java.util.UUID
 object AntMemberRpcCall {
 
     private const val SESAME_CHECK_IN_VERSION = "2025-10-22"
+    private const val SESAME_GROWTH_GUIDE_INVOKE_VERSION = "1.0.2025.10.27"
     private const val SESAME_TASK_VERSION = "new"
     private const val SESAME_TASK_SCENE_CODE = "DAILY_MUST_DO_CARD"
     private const val SESAME_TASK_SCENE_ZML = "zml"
@@ -440,6 +441,24 @@ object AntMemberRpcCall {
     }
 
     /**
+     * 芝麻信用首页（V8 兼容）
+     */
+    @JvmStatic
+    fun queryHomeV8(): String {
+        val args = JSONObject().apply {
+            put("invokeSource", "zmHome")
+            put("miniZmGrayInside", "")
+            put("switchNavigation", true)
+            put("switchNewPage", true)
+            put("version", "week")
+        }
+        return RequestManager.requestString(
+            "com.antgroup.zmxy.zmcustprod.biz.rpc.home.api.HomeV8RpcManager.queryHome",
+            JSONArray().put(args).toString()
+        )
+    }
+
+    /**
      * 获取芝麻信用任务列表
      */
     @JvmStatic
@@ -454,10 +473,18 @@ object AntMemberRpcCall {
      * 芝麻信用领取任务
      */
     @JvmStatic
-    fun joinSesameTask(taskTemplateId: String): String {
+    fun joinSesameTask(taskTemplateId: String, sceneCode: String? = null): String {
+        val args = JSONObject().apply {
+            put("chInfo", SESAME_TASK_JOIN_CH_INFO)
+            put("joinFromOuter", false)
+            if (!sceneCode.isNullOrBlank()) {
+                put("sceneCode", sceneCode)
+            }
+            put("templateId", taskTemplateId)
+        }
         return RequestManager.requestString(
             "com.antgroup.zmxy.zmmemberop.biz.rpc.promise.PromiseRpcManager.joinActivity",
-            """[{"chInfo":"$SESAME_TASK_JOIN_CH_INFO","joinFromOuter":false,"sceneCode":"$SESAME_TASK_SCENE_ZML","templateId":"$taskTemplateId"}]"""
+            JSONArray().put(args).toString()
         )
     }
 
@@ -465,10 +492,28 @@ object AntMemberRpcCall {
      * 芝麻信用获取任务回调
      */
     @JvmStatic
-    fun feedBackSesameTask(taskTemplateId: String): String {
+    fun feedBackSesameTask(
+        taskTemplateId: String,
+        bizType: String? = null,
+        sceneCode: String? = null,
+        version: String? = null
+    ): String {
+        val args = JSONObject().apply {
+            put("actionType", "TO_COMPLETE")
+            if (!bizType.isNullOrBlank()) {
+                put("bizType", bizType)
+            }
+            if (!sceneCode.isNullOrBlank()) {
+                put("sceneCode", sceneCode)
+            }
+            put("templateId", taskTemplateId)
+            if (!version.isNullOrBlank()) {
+                put("version", version)
+            }
+        }
         return RequestManager.requestString(
             "com.antgroup.zmxy.zmmemberop.biz.rpc.creditaccumulate.CreditAccumulateStrategyRpcManager.taskFeedback",
-            """[{"actionType":"TO_COMPLETE","templateId":"$taskTemplateId"}]""",
+            JSONArray().put(args).toString(),
             "zmmemberop", "taskFeedback", "CreditAccumulateStrategyRpcManager"
         )
     }
@@ -1021,7 +1066,10 @@ object AntMemberRpcCall {
          * 查询“成长引导/信誉任务”待办列表
          */
         @JvmStatic
-        fun queryGrowthGuideToDoList(guideBehaviorId: String, invokeVersion: String): String {
+        fun queryGrowthGuideToDoList(
+            guideBehaviorId: String = "",
+            invokeVersion: String = SESAME_GROWTH_GUIDE_INVOKE_VERSION
+        ): String {
             val requestData =
                 """[{"guideBehaviorId":"$guideBehaviorId","invokeVersion":"$invokeVersion","switchNewPage":true}]"""
             return RequestManager.requestString(
@@ -1167,7 +1215,7 @@ object AntMemberRpcCall {
             @JvmStatic
             fun alchemyQueryListV3(): String {
                 val requestData =
-                    """[{"chInfo":"","deliverStatus":"","deliveryTemplateId":"","searchSubscribeTask":true,"version":"alchemy"}]"""
+                    """[{"chInfo":"","deliverStatus":"","deliveryTemplateId":"","searchSubscribeTask":true,"supportRewardLJCS":true,"version":"alchemy"}]"""
                 return RequestManager.requestString(
                     "com.antgroup.zmxy.zmmemberop.biz.rpc.creditaccumulate.CreditAccumulateStrategyRpcManager.queryListV3",
                     requestData
