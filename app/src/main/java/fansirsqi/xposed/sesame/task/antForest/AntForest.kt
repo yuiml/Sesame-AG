@@ -1970,10 +1970,15 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                             continue
                         }
 
+                        val safeUserId = userId ?: ""
+                        if (EnergyWaitingManager.hasWaitingTask(safeUserId, bubbleId, produceTime)) {
+                            continue
+                        }
+
                         waitingBubblesCount++
                         // 添加蹲点任务
                         EnergyWaitingManager.addWaitingTask(
-                            userId = userId ?: "",
+                            userId = safeUserId,
                             userName = userName ?: "未知用户",
                             bubbleId = bubbleId,
                             produceTime = produceTime,
@@ -3134,16 +3139,43 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                         robExpandCardEndTime = userUsingProp.getLong("endTime")
                         Log.record(TAG, "$propName 剩余时间⏰：" + formatTimeDifference(robExpandCardEndTime - System.currentTimeMillis()))
                         if (!extInfo.isEmpty()) {
-                            val extInfoObj = JSONObject(extInfo)
-                            val leftEnergy = extInfoObj.optString("leftEnergy", "0").toDouble()
-                            val robExpandLimit = (robExpandCardLimt?.value ?: 0).toDouble()
-                            if (leftEnergy > robExpandLimit || ("true" == extInfoObj.optString("overLimitToday", "false") && leftEnergy >= 1)) {
-                                val propId = userUsingProp.getString("propId")
-                                val propType = userUsingProp.getString("propType")
+                            val extInfoObj = runCatching { JSONObject(extInfo) }.getOrNull()
+                            if (extInfoObj == null) {
+                                Log.record(TAG, "$propName 附加信息解析失败，跳过翻倍能量领取")
+                                continue
+                            }
+                            val leftEnergy = extInfoObj.optString("leftEnergy", "0").toDoubleOrNull()
+                                ?: extInfoObj.optDouble("leftEnergy", 0.0)
+                            val collectableEnergy = extInfoObj.optString("collectableEnergy")
+                                .toIntOrNull()
+                                ?: leftEnergy.toInt()
+                            val overLimitToday = extInfoObj.optBoolean("overLimitToday", false) ||
+                                extInfoObj.optString("overLimitToday", "false").equals("true", true)
+                            val robExpandLimit = (robExpandCardLimt?.value ?: 0).coerceAtLeast(1).toDouble()
+                            val shouldCollectRobExpand = collectableEnergy >= 1 ||
+                                leftEnergy >= robExpandLimit ||
+                                (overLimitToday && leftEnergy > 0.0)
+                            if (shouldCollectRobExpand) {
+                                val propId = userUsingProp.optString("propId")
+                                val propType = userUsingProp.optString("propType")
+                                if (propId.isBlank() || propType.isBlank()) {
+                                    Log.record(TAG, "$propName 缺少 propId/propType，跳过翻倍能量领取")
+                                    continue
+                                }
                                 val jo = JSONObject(AntForestRpcCall.collectRobExpandEnergy(propId, propType))
                                 if (ResChecker.checkRes(TAG, jo)) {
                                     val collectEnergy = jo.optInt("collectEnergy")
-                                    Log.forest("翻倍能量🌳[" + collectEnergy + "g][$propName]")
+                                    if (collectEnergy > 0) {
+                                        selfId?.takeIf { it.isNotBlank() }?.let { uid ->
+                                            Statistics.addData(uid, Statistics.DataType.COLLECTED, collectEnergy)
+                                            totalCollected = Statistics.getData(uid, Statistics.TimeType.DAY, Statistics.DataType.COLLECTED)
+                                        } ?: run {
+                                            totalCollected += collectEnergy
+                                        }
+                                    }
+                                    val remainEnergy = jo.optString("leftEnergy")
+                                    val remainSuffix = if (remainEnergy.isNotEmpty()) "#剩余${remainEnergy}g" else ""
+                                    Log.forest("翻倍能量🌳[" + collectEnergy + "g][$propName]$remainSuffix")
                                 }
                             }
                         }

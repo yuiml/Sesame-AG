@@ -607,6 +607,7 @@ class AntOrchard : ModelTask() {
                     )
                 }"
             )
+            Status.setFlagToday("$STATUS_YEB_EXP_GOLD_TASK_PREFIX::$taskId")
             return false
         }
 
@@ -654,6 +655,7 @@ class AntOrchard : ModelTask() {
                         )
                     }"
                 )
+                Status.setFlagToday(successFlag)
             }
             CoroutineUtils.sleepCompat(executeIntervalInt.toLong())
         }

@@ -3785,65 +3785,85 @@ class AntFarm : ModelTask() {
     private fun hireAnimalAction(userId: String?): Boolean {
         try {
             val s = AntFarmRpcCall.enterFarm(userId, userId)
+            if (s.isBlank()) {
+                return false
+            }
             var jo = JSONObject(s)
             if (ResChecker.checkRes(TAG, jo)) {
                 val farmVO = jo.getJSONObject("farmVO")
                 val subFarmVO = farmVO.getJSONObject("subFarmVO")
                 val farmId = subFarmVO.getString("farmId")
                 val animals = subFarmVO.getJSONArray("animals")
-                var i = 0
-                val len = animals.length()
-                while (i < len) {
+                var candidate: JSONObject? = null
+                var fallbackCandidate: JSONObject? = null
+                for (i in 0 until animals.length()) {
                     val animal = animals.getJSONObject(i)
-                    if (animal.getJSONObject("masterUserInfoVO").getString("userId") == userId) {
-                        val animalStatusVo = animal.getJSONObject("animalStatusVO")
-                        if (AnimalInteractStatus.HOME.name != animalStatusVo.getString("animalInteractStatus")) {
-                            Log.record(UserMap.getMaskName(userId) + "的小鸡不在家")
-                            return false
-                        }
-                        val animalId = animal.getString("animalId")
-                        jo = JSONObject(AntFarmRpcCall.hireAnimal(farmId, animalId))
-                        if (ResChecker.checkRes(TAG, jo)) {
-                            Log.farm("雇佣小鸡👷[" + UserMap.getMaskName(userId) + "] 成功")
-                            val newAnimals = jo.getJSONArray("animals")
-                            var ii = 0
-                            val newLen = newAnimals.length()
-                            while (ii < newLen) {
-                                val joo = newAnimals.getJSONObject(ii)
-                                if (joo.getString("animalId") == animalId) {
-                                    val beHiredEndTime = joo.getLong("beHiredEndTime")
-                                    addChildTask(
-                                        ChildModelTask(
-                                            "HIRE|$animalId",
-                                            "HIRE",
-                                            suspendRunnable = { this.hireAnimal() },
-                                            beHiredEndTime
-                                        )
-                                    )
-                                    Log.record(
-                                        TAG,
-                                        "添加蹲点雇佣👷在[" + TimeUtil.getCommonDate(beHiredEndTime) + "]执行"
-                                    )
-                                    break
-                                }
-                                ii++
-                            }
-                            return true
-                        } else {
-                            val resultCode = jo.optString("resultCode", "")
-                            val memo = jo.optString("memo", "")
-                            // 如果庄园已满，设置标志并返回false
-                            if (resultCode == "I07" || memo.contains("庄园的小鸡太多了")) {
-                                isFarmFull = true
-                                Log.record(TAG, "庄园小鸡已满，停止雇佣")
-                                return false
-                            }
-                            Log.record(memo)
-                            Log.record(s)
-                        }
+                    if (animal.optString("subAnimalType") == "WORK") {
+                        Log.record(UserMap.getMaskName(userId) + "的小鸡已被雇佣")
                         return false
                     }
-                    i++
+                    val animalStatusVo = animal.optJSONObject("animalStatusVO") ?: continue
+                    if (AnimalInteractStatus.HOME.name != animalStatusVo.optString("animalInteractStatus")) {
+                        continue
+                    }
+                    fallbackCandidate = fallbackCandidate ?: animal
+                    val masterUserId = animal.optJSONObject("masterUserInfoVO")
+                        ?.optString("userId")
+                        .orEmpty()
+                    if (masterUserId.isBlank() || masterUserId == userId) {
+                        candidate = animal
+                        break
+                    }
+                }
+
+                val animal = candidate ?: fallbackCandidate
+                if (animal == null) {
+                    Log.record(UserMap.getMaskName(userId) + "的小鸡不在家")
+                    return false
+                }
+
+                val animalId = animal.optString("animalId")
+                if (animalId.isBlank()) {
+                    return false
+                }
+
+                jo = JSONObject(AntFarmRpcCall.hireAnimal(farmId, animalId))
+                if (ResChecker.checkRes(TAG, jo)) {
+                    Log.farm("雇佣小鸡👷[" + UserMap.getMaskName(userId) + "] 成功")
+                    val newAnimals = jo.getJSONArray("animals")
+                    var ii = 0
+                    val newLen = newAnimals.length()
+                    while (ii < newLen) {
+                        val joo = newAnimals.getJSONObject(ii)
+                        if (joo.getString("animalId") == animalId) {
+                            val beHiredEndTime = joo.getLong("beHiredEndTime")
+                            addChildTask(
+                                ChildModelTask(
+                                    "HIRE|$animalId",
+                                    "HIRE",
+                                    suspendRunnable = { this.hireAnimal() },
+                                    beHiredEndTime
+                                )
+                            )
+                            Log.record(
+                                TAG,
+                                "添加蹲点雇佣👷在[" + TimeUtil.getCommonDate(beHiredEndTime) + "]执行"
+                            )
+                            break
+                        }
+                        ii++
+                    }
+                    return true
+                } else {
+                    val resultCode = jo.optString("resultCode", "")
+                    val memo = jo.optString("memo", "")
+                    if (resultCode == "I07" || memo.contains("庄园的小鸡太多了")) {
+                        isFarmFull = true
+                        Log.record(TAG, "庄园小鸡已满，停止雇佣")
+                        return false
+                    }
+                    Log.record(memo)
+                    Log.record(s)
                 }
             } else {
                 Log.record(jo.getString("memo"))

@@ -355,6 +355,15 @@ object EnergyWaitingManager {
     }
 
     /**
+     * 查询指定能量球的蹲点任务是否已存在。
+     * 可选地校验成熟时间，用于过滤恢复后的重复添加请求。
+     */
+    fun hasWaitingTask(userId: String, bubbleId: Long, produceTime: Long? = null): Boolean {
+        val existingTask = waitingTasks["${userId}_${bubbleId}"] ?: return false
+        return produceTime == null || existingTask.produceTime == produceTime
+    }
+
+    /**
      * 启动精确蹲点协程
      * 核心原则：不提前收取，严格按时机执行
      */
