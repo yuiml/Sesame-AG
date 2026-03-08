@@ -15,12 +15,6 @@ import java.io.File
 object Logback {
     private var isFileInitialized = false
 
-    // 定义所有 Logger 的名称
-    val LOG_NAMES = listOf(
-        "runtime", "system", "record", "debug", "forest",
-        "farm", "other", "error", "capture", "captcha"
-    )
-
     /**
      * 阶段1：初始化 Logcat (保证控制台一定有日志)
      * 在 Log 类的 init 块中自动调用
@@ -70,7 +64,7 @@ object Logback {
             val lc = LoggerFactory.getILoggerFactory() as LoggerContext
 
             // 为每个特定业务的 Logger 添加文件 Appender
-            LOG_NAMES.forEach { logName ->
+            LogCatalog.loggerNames().forEach { logName ->
                 addFileAppender(lc, logName, logDir)
             }
 

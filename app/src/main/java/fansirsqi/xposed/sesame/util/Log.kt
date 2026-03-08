@@ -12,37 +12,26 @@ import java.util.concurrent.atomic.AtomicInteger
  * 日志工具类，负责初始化和管理各种类型的日志记录器，并提供日志输出方法。
  */
 object Log {
-    private const val DEFAULT_TAG = ""
     private const val MAX_DUPLICATE_ERRORS = 3 // 最多打印3次相同错误
 
     // 错误去重机制
     private val errorCountMap = ConcurrentHashMap<String, AtomicInteger>()
 
-    // Logger 实例
-    private val RUNTIME_LOGGER: Logger
-    private val SYSTEM_LOGGER: Logger
-    private val RECORD_LOGGER: Logger
-    private val DEBUG_LOGGER: Logger
-    private val FOREST_LOGGER: Logger
-    private val FARM_LOGGER: Logger
-    private val OTHER_LOGGER: Logger
-    private val ERROR_LOGGER: Logger
-    private val CAPTURE_LOGGER: Logger
+    private enum class Severity {
+        DEBUG,
+        INFO,
+        WARN,
+        ERROR
+    }
+
+    private val loggerMap: Map<LogChannel, Logger>
 
     init {
         // 🔥 1. 立即初始化 Logcat，确保在任何 Context 到来之前控制台可用
         Logback.initLogcatOnly()
 
         // 2. 初始化 Logger 实例 (此时它们已经有了 Logcat 能力)
-        RUNTIME_LOGGER = LoggerFactory.getLogger("runtime")
-        SYSTEM_LOGGER = LoggerFactory.getLogger("system")
-        RECORD_LOGGER = LoggerFactory.getLogger("record")
-        DEBUG_LOGGER = LoggerFactory.getLogger("debug")
-        FOREST_LOGGER = LoggerFactory.getLogger("forest")
-        FARM_LOGGER = LoggerFactory.getLogger("farm")
-        OTHER_LOGGER = LoggerFactory.getLogger("other")
-        ERROR_LOGGER = LoggerFactory.getLogger("error")
-        CAPTURE_LOGGER = LoggerFactory.getLogger("capture")
+        loggerMap = LogCatalog.channels.associateWith { LoggerFactory.getLogger(it.loggerName) }
     }
 
     /**
@@ -60,9 +49,43 @@ object Log {
 
     // --- 日志方法 ---
 
+    private fun getLogger(channel: LogChannel): Logger {
+        return loggerMap.getValue(channel)
+    }
+
+    private fun formatTaggedMessage(tag: String, msg: String): String = "[$tag]: $msg"
+
+    private fun shouldWrite(channel: LogChannel): Boolean {
+        return when (channel) {
+            LogChannel.RECORD -> BaseModel.recordLog.value == true
+            LogChannel.RUNTIME -> BaseModel.runtimeLog.value == true || BuildConfig.DEBUG
+            else -> true
+        }
+    }
+
+    private fun logRaw(channel: LogChannel, severity: Severity, msg: String) {
+        if (!shouldWrite(channel)) {
+            return
+        }
+        val logger = getLogger(channel)
+        when (severity) {
+            Severity.DEBUG -> logger.debug("{}", msg)
+            Severity.INFO -> logger.info("{}", msg)
+            Severity.WARN -> logger.warn("{}", msg)
+            Severity.ERROR -> logger.error("{}", msg)
+        }
+    }
+
+    private fun write(channel: LogChannel, severity: Severity, msg: String) {
+        if (channel.mirrorToRecord) {
+            logRaw(LogChannel.RECORD, Severity.INFO, msg)
+        }
+        logRaw(channel, severity, msg)
+    }
+
     @JvmStatic
     fun system(msg: String) {
-        SYSTEM_LOGGER.info("$DEFAULT_TAG{}", msg)
+        write(LogChannel.SYSTEM, Severity.INFO, msg)
     }
 
     @JvmStatic
@@ -72,9 +95,7 @@ object Log {
 
     @JvmStatic
     fun runtime(msg: String) {
-        if (BaseModel.runtimeLog.value == true || BuildConfig.DEBUG) {
-            RUNTIME_LOGGER.info("$DEFAULT_TAG{}", msg)
-        }
+        write(LogChannel.RUNTIME, Severity.INFO, msg)
     }
 
     @JvmStatic
@@ -85,9 +106,7 @@ object Log {
 
     @JvmStatic
     fun record(msg: String) {
-        if (BaseModel.recordLog.value == true) {
-            RECORD_LOGGER.info("$DEFAULT_TAG{}", msg)
-        }
+        write(LogChannel.RECORD, Severity.INFO, msg)
     }
 
     @JvmStatic
@@ -97,8 +116,7 @@ object Log {
 
     @JvmStatic
     fun forest(msg: String) {
-        record(msg)
-        FOREST_LOGGER.debug("{}", msg)
+        write(LogChannel.FOREST, Severity.DEBUG, msg)
     }
 
     @JvmStatic
@@ -108,13 +126,17 @@ object Log {
 
     @JvmStatic
     fun farm(msg: String) {
-        record(msg)
-        FARM_LOGGER.debug("{}", msg)
+        write(LogChannel.FARM, Severity.DEBUG, msg)
+    }
+
+    @JvmStatic
+    fun farm(tag: String, msg: String) {
+        farm(formatTaggedMessage(tag, msg))
     }
 
     @JvmStatic
     fun other(msg: String) {
-        OTHER_LOGGER.debug("{}", msg)
+        write(LogChannel.OTHER, Severity.DEBUG, msg)
     }
 
     @JvmStatic
@@ -124,7 +146,7 @@ object Log {
 
     @JvmStatic
     fun debug(msg: String) {
-        DEBUG_LOGGER.debug("{}", msg)
+        write(LogChannel.DEBUG, Severity.DEBUG, msg)
     }
 
     @JvmStatic
@@ -134,7 +156,7 @@ object Log {
 
     @JvmStatic
     fun error(msg: String) {
-        ERROR_LOGGER.error("$DEFAULT_TAG{}", msg)
+        write(LogChannel.ERROR, Severity.ERROR, msg)
     }
 
     @JvmStatic
@@ -144,7 +166,7 @@ object Log {
 
     @JvmStatic
     fun capture(msg: String) {
-        CAPTURE_LOGGER.info("$DEFAULT_TAG{}", msg)
+        write(LogChannel.CAPTURE, Severity.INFO, msg)
     }
 
     @JvmStatic
@@ -152,27 +174,46 @@ object Log {
         capture("[$tag]: $msg")
     }
 
+    @JvmStatic
     fun d(tag: String, msg: String) {
-        DEBUG_LOGGER.debug("[$tag]: $msg")
+        debug(formatTaggedMessage(tag, msg))
     }
 
+    @JvmStatic
     fun i(tag: String, msg: String) {
-        RECORD_LOGGER.info("[$tag]: $msg")
+        record(formatTaggedMessage(tag, msg))
     }
 
+    @JvmStatic
     fun w(tag: String, msg: String) {
-        RECORD_LOGGER.warn("[$tag]: $msg")
+        logRaw(LogChannel.RECORD, Severity.WARN, formatTaggedMessage(tag, msg))
     }
 
-    fun e(tag: String, msg: String, th: Throwable?=null) {
-        ERROR_LOGGER.error("[$tag]: $msg ${android.util.Log.getStackTraceString(th)}")
+    @JvmStatic
+    fun w(tag: String, msg: String, th: Throwable?) {
+        val finalMsg = if (th == null) {
+            formatTaggedMessage(tag, msg)
+        } else {
+            "${formatTaggedMessage(tag, msg)}\n${android.util.Log.getStackTraceString(th)}"
+        }
+        logRaw(LogChannel.RECORD, Severity.WARN, finalMsg)
+    }
+
+    @JvmStatic
+    fun e(tag: String, msg: String, th: Throwable? = null) {
+        val finalMsg = if (th == null) {
+            formatTaggedMessage(tag, msg)
+        } else {
+            "${formatTaggedMessage(tag, msg)}\n${android.util.Log.getStackTraceString(th)}"
+        }
+        write(LogChannel.ERROR, Severity.ERROR, finalMsg)
     }
 
 
     /**
      * 检查是否应该打印此错误（去重机制）
      */
-    private fun shouldPrintError(th: Throwable?): Boolean {
+    private fun shouldSkipDuplicateError(th: Throwable?): Boolean {
         if (th == null) return false
 
         // 提取错误特征
@@ -190,34 +231,45 @@ object Log {
         // 如果是第3次，记录一个汇总信息
         if (currentCount == MAX_DUPLICATE_ERRORS) {
             record("⚠️ 错误【$errorSignature】已出现${currentCount}次，后续将不再打印详细堆栈")
-            return true
+            return false
         }
 
         // 超过最大次数后不再打印
-        return currentCount <= MAX_DUPLICATE_ERRORS
+        return currentCount > MAX_DUPLICATE_ERRORS
+    }
+
+    private fun buildStackTraceMessage(tag: String? = null, msg: String? = null, th: Throwable): String {
+        val header = when {
+            !tag.isNullOrBlank() && !msg.isNullOrBlank() -> "[$tag] $msg"
+            !tag.isNullOrBlank() -> "[$tag] Throwable error"
+            !msg.isNullOrBlank() -> msg
+            else -> "Throwable error"
+        }
+        return "$header\n${android.util.Log.getStackTraceString(th)}"
     }
 
     @JvmStatic
-
     fun printStackTrace(th: Throwable) {
-        if (shouldPrintError(th)) return
-        val stackTrace = "error: " + android.util.Log.getStackTraceString(th)
-        error(stackTrace)
+        if (shouldSkipDuplicateError(th)) return
+        error(buildStackTraceMessage(th = th))
     }
 
     @JvmStatic
-
     fun printStackTrace(msg: String, th: Throwable) {
-        if (shouldPrintError(th)) return
-        val stackTrace = "Throwable error: " + android.util.Log.getStackTraceString(th)
-        error(msg, stackTrace)
+        if (shouldSkipDuplicateError(th)) return
+        error(buildStackTraceMessage(msg = msg, th = th))
+    }
+
+    @JvmStatic
+    fun printStackTrace(tag: String, th: Throwable) {
+        if (shouldSkipDuplicateError(th)) return
+        error(buildStackTraceMessage(tag = tag, th = th))
     }
 
     @JvmStatic
     fun printStackTrace(tag: String, msg: String, th: Throwable) {
-        if (shouldPrintError(th)) return
-        val stackTrace = "[$tag] Throwable error: " + android.util.Log.getStackTraceString(th)
-        error(msg, stackTrace)
+        if (shouldSkipDuplicateError(th)) return
+        error(buildStackTraceMessage(tag = tag, msg = msg, th = th))
     }
 
     // 兼容 Exception 参数的重载 (Kotlin 中 Exception 是 Throwable 的子类，其实可以直接用上面的)
@@ -230,6 +282,11 @@ object Log {
     @JvmStatic
     fun printStackTrace(msg: String, e: Exception) {
         printStackTrace(msg, e as Throwable)
+    }
+
+    @JvmStatic
+    fun printStackTrace(tag: String, e: Exception) {
+        printStackTrace(tag, e as Throwable)
     }
 
     @JvmStatic

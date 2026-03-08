@@ -2,11 +2,11 @@ package fansirsqi.xposed.sesame.service
 
 import android.content.Context
 import android.content.pm.PackageManager
-import android.util.Log
 import com.niki.cmd.Shell
 import com.niki.cmd.ShizukuShell
 import com.niki.cmd.model.bean.ShellResult
 import fansirsqi.xposed.sesame.service.patch.SafeRootShell
+import fansirsqi.xposed.sesame.util.Log
 import rikka.shizuku.Shizuku
 
 class ShellManager(context: Context) {

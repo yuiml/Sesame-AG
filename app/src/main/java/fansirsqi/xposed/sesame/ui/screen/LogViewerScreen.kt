@@ -105,6 +105,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import fansirsqi.xposed.sesame.ui.compose.CommonAlertDialog
 import fansirsqi.xposed.sesame.ui.viewmodel.LogViewerViewModel
+import fansirsqi.xposed.sesame.util.Log
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -147,7 +148,7 @@ fun LogViewerScreen(
                 try {
                     listState.scrollToItem(index)
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    Log.printStackTrace("LogViewerScreen", "scrollToItem failed", e)
                 }
             }
         }

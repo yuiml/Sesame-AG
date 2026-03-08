@@ -279,29 +279,29 @@ object Files {
 
     @JvmStatic
     fun getLogFile(logName: String): String {
-        return "$logName.log"
+        return LogCatalog.fileName(logName)
     }
 
     @JvmStatic
-    fun getRecordLogFile(): File = ensureLogFile(getLogFile("record"))
+    fun getRecordLogFile(): File = ensureLogFile(LogChannel.RECORD.fileName)
 
     @JvmStatic
-    fun getDebugLogFile(): File = ensureLogFile(getLogFile("debug"))
+    fun getDebugLogFile(): File = ensureLogFile(LogChannel.DEBUG.fileName)
 
     @JvmStatic
-    fun getCaptureLogFile(): File = ensureLogFile(getLogFile("capture"))
+    fun getCaptureLogFile(): File = ensureLogFile(LogChannel.CAPTURE.fileName)
 
     @JvmStatic
-    fun getForestLogFile(): File = ensureLogFile(getLogFile("forest"))
+    fun getForestLogFile(): File = ensureLogFile(LogChannel.FOREST.fileName)
 
     @JvmStatic
-    fun getFarmLogFile(): File = ensureLogFile(getLogFile("farm"))
+    fun getFarmLogFile(): File = ensureLogFile(LogChannel.FARM.fileName)
 
     @JvmStatic
-    fun getOtherLogFile(): File = ensureLogFile(getLogFile("other"))
+    fun getOtherLogFile(): File = ensureLogFile(LogChannel.OTHER.fileName)
 
     @JvmStatic
-    fun getErrorLogFile(): File = ensureLogFile(getLogFile("error"))
+    fun getErrorLogFile(): File = ensureLogFile(LogChannel.ERROR.fileName)
 
     @JvmStatic
     fun close(c: Closeable?) {

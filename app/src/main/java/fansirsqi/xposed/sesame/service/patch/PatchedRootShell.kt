@@ -1,8 +1,8 @@
 package fansirsqi.xposed.sesame.service.patch
 
-import android.util.Log
 import com.niki.cmd.Shell
 import com.niki.cmd.model.bean.ShellResult
+import fansirsqi.xposed.sesame.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout

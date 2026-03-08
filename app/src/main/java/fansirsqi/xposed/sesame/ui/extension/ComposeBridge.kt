@@ -21,10 +21,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fansirsqi.xposed.sesame.ui.compose.CommonAlertDialog
 import fansirsqi.xposed.sesame.ui.theme.AppTheme
 import fansirsqi.xposed.sesame.ui.theme.ThemeManager
+import fansirsqi.xposed.sesame.util.Log
 import kotlin.system.exitProcess
 
 
 object NativeComposeBridge {
+    private const val TAG = "NativeComposeBridge"
 
 
     /**
@@ -62,7 +64,7 @@ object NativeComposeBridge {
                 }
                 rootView.addView(composeView)
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.printStackTrace(TAG, "showAlertDialog failed", e)
             }
         }
     }

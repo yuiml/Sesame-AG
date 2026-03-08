@@ -1,11 +1,13 @@
 package fansirsqi.xposed.sesame.task.antOrchard
 
 import fansirsqi.xposed.sesame.hook.RequestManager
+import fansirsqi.xposed.sesame.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLDecoder
 
 object XLightRpcCall {
+    private const val TAG = "XLightRpcCall"
 
     // 固定 SDK 信息
     private const val AD_COMPONENT_TYPE = "FEEDS"
@@ -83,7 +85,7 @@ object XLightRpcCall {
             )
 
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.printStackTrace(TAG, "xlightPlugin failed", e)
             ""
         }
     }
@@ -132,7 +134,7 @@ object XLightRpcCall {
             )
 
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.printStackTrace(TAG, "finishTask failed", e)
             ""
         }
     }
@@ -140,6 +142,7 @@ object XLightRpcCall {
 }
 
 object UrlUtil {
+    private const val TAG = "UrlUtil"
     /**
      * 从原始URL中提取指定参数的完整值(支持多层嵌套)
      * @param url 原始URL
@@ -170,7 +173,7 @@ object UrlUtil {
 
             return match?.groupValues?.get(1)?.let { decode(it) }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.printStackTrace(TAG, "getParamValue failed", e)
             return null
         }
     }
@@ -243,7 +246,7 @@ object UrlUtil {
 
             return result
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.printStackTrace(TAG, "getFullNestedUrl failed", e)
             return null
         }
     }
@@ -269,7 +272,7 @@ object UrlUtil {
 
             return match?.groupValues?.get(1)?.let { decode(it) }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.printStackTrace(TAG, "extractParamFromUrl failed", e)
             return null
         }
     }

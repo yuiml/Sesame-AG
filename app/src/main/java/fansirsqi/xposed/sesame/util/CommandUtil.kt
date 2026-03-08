@@ -8,7 +8,6 @@ import android.content.ServiceConnection
 import android.os.Build
 import android.os.IBinder
 import android.os.RemoteException
-import android.util.Log
 import fansirsqi.xposed.sesame.ICallback
 import fansirsqi.xposed.sesame.ICommandService
 import fansirsqi.xposed.sesame.IStatusListener

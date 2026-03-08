@@ -186,7 +186,7 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
             // 这是正常的协程生命周期管理，不需要打印错误
             throw e // 重新抛出让协程框架处理
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.printStackTrace(tag, e)
             val errorMsg = "索引失败: ${e.message}"
             Log.error(tag, errorMsg)
             withContext(Dispatchers.Main) {

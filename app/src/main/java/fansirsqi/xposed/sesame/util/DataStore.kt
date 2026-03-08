@@ -1,7 +1,6 @@
 package fansirsqi.xposed.sesame.util
 
 import android.annotation.SuppressLint
-import android.util.Log
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.core.util.DefaultIndenter
 import com.fasterxml.jackson.core.util.DefaultPrettyPrinter

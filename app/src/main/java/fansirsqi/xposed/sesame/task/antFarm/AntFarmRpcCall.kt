@@ -1,6 +1,7 @@
 package fansirsqi.xposed.sesame.task.antFarm
 
 import fansirsqi.xposed.sesame.hook.RequestManager.requestString
+import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.RandomUtil.nextInt
 import org.json.JSONArray
 import org.json.JSONException
@@ -10,6 +11,7 @@ import java.security.NoSuchAlgorithmException
 import java.util.UUID
 
 object AntFarmRpcCall {
+    private const val TAG = "AntFarmRpcCall"
     private const val VERSION = "1.8.2302070202.46"
     private const val GAME_CENTER_VERSION = "10.8.20.8000"
 
@@ -480,7 +482,7 @@ object AntFarmRpcCall {
             // 标准的md5加密后的结果
             return buffer.toString()
         } catch (e: NoSuchAlgorithmException) {
-            e.printStackTrace()
+            Log.printStackTrace(TAG, e)
             return ""
         }
     }

@@ -1,12 +1,16 @@
 package fansirsqi.xposed.sesame.hook.server.handlers
 
 import fansirsqi.xposed.sesame.hook.server.ServerCommon
+import fansirsqi.xposed.sesame.util.Log
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
 import fi.iki.elonen.NanoHTTPD.Method
 import fi.iki.elonen.NanoHTTPD.Response
 
 abstract class BaseHandler(private val secretToken: String) : HttpHandler {
+    companion object {
+        private const val TAG = "BaseHandler"
+    }
 
     // 直接使用单例
     protected val mapper = ServerCommon.jsonMapper
@@ -26,7 +30,7 @@ abstract class BaseHandler(private val secretToken: String) : HttpHandler {
                 else -> methodNotAllowed()
             }
         } catch (e: Exception) {
-            e.printStackTrace() // 打印堆栈到 Logcat
+            Log.printStackTrace(TAG, "HTTP handler failed", e)
             json(Response.Status.INTERNAL_ERROR, mapOf("status" to "error", "message" to (e.message ?: "Unknown error")))
         }
     }
