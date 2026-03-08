@@ -136,6 +136,9 @@ class AntOcean : ModelTask() {
     private var PDL_task: BooleanModelField? = null
 
     private val oceanTaskTryCount = ConcurrentHashMap<String, AtomicInteger>()
+    private var currentOceanUserId: String? = null
+    private var lastKnownRubbishNumber: Int = -1
+    private var selfOceanCleanRetried = false
 
     override fun getName(): String {
         return "海洋"
@@ -224,6 +227,10 @@ class AntOcean : ModelTask() {
     override suspend fun runSuspend() {
         try {
             Log.record(TAG, "执行开始-" + getName())
+            oceanTaskTryCount.clear()
+            currentOceanUserId = null
+            lastKnownRubbishNumber = -1
+            selfOceanCleanRetried = false
 
             if (!queryOceanStatus()) {
                 return
@@ -342,33 +349,130 @@ class AntOcean : ModelTask() {
         }
     }
 
-    private suspend fun queryHomePage() {
-        try {
-            val joHomePage = JsonUtil.parseJSONObjectOrNull(AntOceanRpcCall.queryHomePage()) ?: return
-            if (ResChecker.checkRes(TAG, joHomePage)) {
-                if (joHomePage.has("bubbleVOList")) {
-                    collectEnergy(joHomePage.getJSONArray("bubbleVOList"))
-                }
-                val userInfoVO = joHomePage.getJSONObject("userInfoVO")
-                val rubbishNumber = userInfoVO.optInt("rubbishNumber", 0)
-                val userId = userInfoVO.getString("userId")
-                cleanOcean(userId, rubbishNumber)
-                val ipVO = userInfoVO.optJSONObject("ipVO")
-                if (ipVO != null) {
-                    val surprisePieceNum = ipVO.optInt("surprisePieceNum", 0)
-                    if (surprisePieceNum > 0) {
-                        ipOpenSurprise()
+    private suspend fun queryHomePageData(showTaskPanel: Boolean = false): JSONObject? {
+        val joHomePage = JsonUtil.parseJSONObjectOrNull(AntOceanRpcCall.queryHomePage(showTaskPanel)) ?: return null
+        if (!ResChecker.checkRes(TAG, joHomePage)) {
+            Log.runtime(TAG, extractOceanResultDesc(joHomePage))
+            return null
+        }
+        return joHomePage
+    }
+
+    private fun rememberSelfOceanState(userInfoVO: JSONObject?) {
+        if (userInfoVO == null) {
+            return
+        }
+        val userId = userInfoVO.optString("userId")
+        if (userId.isNotBlank()) {
+            currentOceanUserId = userId
+        }
+        if (userInfoVO.has("rubbishNumber")) {
+            lastKnownRubbishNumber = userInfoVO.optInt("rubbishNumber", 0).coerceAtLeast(0)
+        }
+    }
+
+    private fun extractOceanResultDesc(jo: JSONObject): String {
+        return jo.optString("resultDesc").ifBlank {
+            jo.optString("memo").ifBlank {
+                jo.optString("desc").ifBlank {
+                    jo.optString("errorMsg").ifBlank {
+                        jo.toString()
                     }
                 }
-                queryMiscInfo()
-                queryNotice()
-                queryRefinedMaterial()
-                queryReplicaHome()
-                queryUserRanking() // 清理
-                querySeaAreaDetailList()
-            } else {
-                Log.runtime(TAG, joHomePage.getString("resultDesc"))
             }
+        }
+    }
+
+    private fun isHelpCleanLimit(jo: JSONObject): Boolean {
+        val resultCode = jo.optString("resultCode").ifBlank { jo.optString("code") }
+        val desc = extractOceanResultDesc(jo)
+        return resultCode == "HELP_CLEAN_LIMIT" ||
+            resultCode == "HELP_CLEAN_ALL_FRIEND_LIMIT" ||
+            desc.contains("清理好友海域的次数已达上限") ||
+            desc.contains("清理次数已达20次上限") ||
+            desc.contains("已达20次上限")
+    }
+
+    private fun markHelpCleanLimit(jo: JSONObject) {
+        if (Status.hasFlagToday(HELP_CLEAN_LIMIT_FLAG)) {
+            return
+        }
+        Status.setFlagToday(HELP_CLEAN_LIMIT_FLAG)
+        Log.record(TAG, "神奇海洋🌊帮助清理次数已达上限：${extractOceanResultDesc(jo)}")
+    }
+
+    private fun isSelfCleanTask(taskType: String, taskTitle: String): Boolean {
+        return taskType == "CLEAN_RUBBISH_2_EVERY_DAY" || taskTitle.contains("清理自己垃圾")
+    }
+
+    private fun isOceanActionTask(taskType: String, taskTitle: String): Boolean {
+        return isSelfCleanTask(taskType, taskTitle) ||
+            taskType.startsWith("CLEAN_") ||
+            taskTitle.contains("清理好友") ||
+            taskTitle.contains("清理海域")
+    }
+
+    private fun isActiveExtraCollect(extraCollectVO: JSONObject?): Boolean {
+        if (extraCollectVO == null) {
+            return false
+        }
+        val status = extraCollectVO.optString("status")
+        if (status.isBlank()) {
+            return extraCollectVO.has("expireAt") || extraCollectVO.has("expireAtLeftDays")
+        }
+        return status != "FINISHED" &&
+            status != "UNOPEN" &&
+            status != "NOT_OPEN" &&
+            status != "WAIT_OPEN" &&
+            status != "TO_OPEN"
+    }
+
+    private suspend fun retrySelfOceanCleanIfNeeded(taskTitle: String): Boolean {
+        if (selfOceanCleanRetried) {
+            return false
+        }
+        val userId = currentOceanUserId
+        if (userId.isNullOrBlank()) {
+            return false
+        }
+        selfOceanCleanRetried = true
+        val joHomePage = queryHomePageData(showTaskPanel = true) ?: return false
+        val userInfoVO = joHomePage.optJSONObject("userInfoVO")
+        rememberSelfOceanState(userInfoVO)
+        val refreshedUserId = userInfoVO?.optString("userId").orEmpty().ifBlank { userId }
+        val refreshedRubbishNumber = userInfoVO?.optInt("rubbishNumber", 0)?.coerceAtLeast(0) ?: 0
+        if (refreshedRubbishNumber <= 0) {
+            return false
+        }
+        Log.record(TAG, "神奇海洋🌊[$taskTitle]触发自清理补偿刷新：$refreshedRubbishNumber 次")
+        cleanOcean(refreshedUserId, refreshedRubbishNumber)
+        return true
+    }
+
+    private suspend fun queryHomePage() {
+        try {
+            val joHomePage = queryHomePageData(showTaskPanel = true) ?: return
+            if (joHomePage.has("bubbleVOList")) {
+                collectEnergy(joHomePage.getJSONArray("bubbleVOList"))
+            }
+            val userInfoVO = joHomePage.optJSONObject("userInfoVO")
+            rememberSelfOceanState(userInfoVO)
+            val rubbishNumber = lastKnownRubbishNumber.coerceAtLeast(0)
+            val userId = currentOceanUserId.orEmpty()
+            cleanOcean(userId, rubbishNumber)
+            val ipVO = userInfoVO?.optJSONObject("ipVO")
+            if (ipVO != null) {
+                val surprisePieceNum = ipVO.optInt("surprisePieceNum", 0)
+                if (surprisePieceNum > 0) {
+                    ipOpenSurprise()
+                }
+            }
+            queryMiscInfo()
+            queryNotice()
+            queryRefinedMaterial()
+            queryReplicaHome()
+            queryUserRanking() // 清理
+            querySeaAreaDetailList()
         } catch (t: Throwable) {
             Log.runtime(TAG, "queryHomePage err:")
             Log.printStackTrace(TAG, t)
@@ -437,7 +541,11 @@ class AntOcean : ModelTask() {
     }
 
     private suspend fun cleanOcean(userId: String, rubbishNumber: Int) {
+        if (userId.isBlank() || rubbishNumber <= 0) {
+            return
+        }
         try {
+            var cleanedTimes = 0
             for (i in 0 until rubbishNumber) {
                 val s = AntOceanRpcCall.cleanOcean(userId)
                 val jo = JsonUtil.parseJSONObjectOrNull(s) ?: continue
@@ -445,9 +553,14 @@ class AntOcean : ModelTask() {
                     val cleanRewardVOS = jo.getJSONArray("cleanRewardVOS")
                     checkReward(cleanRewardVOS)
                     Log.forest("神奇海洋🌊[清理:${UserMap.getMaskName(userId)}海域]")
+                    cleanedTimes += 1
                 } else {
-                    Log.runtime(TAG, jo.getString("resultDesc"))
+                    Log.runtime(TAG, extractOceanResultDesc(jo))
+                    break
                 }
+            }
+            if (cleanedTimes > 0 && lastKnownRubbishNumber >= 0) {
+                lastKnownRubbishNumber = (lastKnownRubbishNumber - cleanedTimes).coerceAtLeast(0)
             }
         } catch (t: Throwable) {
             Log.runtime(TAG, "cleanOcean err:")
@@ -704,7 +817,7 @@ class AntOcean : ModelTask() {
                     combineCompletedFish(seaAreaVO.optJSONArray("fishVO"))
                     val seaAreaExtraCollectVO = seaAreaVO.optJSONObject("seaAreaExtraCollectVO")
                     if (seaAreaExtraCollectVO != null) {
-                        if (seaAreaExtraCollectVO.optString("status") != "FINISHED") {
+                        if (isActiveExtraCollect(seaAreaExtraCollectVO)) {
                             hasOpenedUnfinishedExtraCollect = true
                         }
                         combineCompletedFish(seaAreaExtraCollectVO.optJSONArray("fishVO"))
@@ -773,21 +886,21 @@ class AntOcean : ModelTask() {
                     val cleanRewardVOS = jo.getJSONArray("cleanRewardVOS")
                     checkReward(cleanRewardVOS)
                 } else {
-                    val desc = jo.optString("resultDesc").ifBlank {
-                        jo.optString("memo").ifBlank { jo.optString("desc") }
-                    }
-                    if (desc.contains("上限") || desc.contains("达到上限") || desc.contains("已达上限")) {
-                        Status.setFlagToday(HELP_CLEAN_LIMIT_FLAG)
-                        Log.record(TAG, "神奇海洋🌊帮助清理次数已达上限：$desc")
+                    if (isHelpCleanLimit(jo)) {
+                        markHelpCleanLimit(jo)
                     } else {
-                        Log.runtime(TAG, desc)
+                        Log.runtime(TAG, extractOceanResultDesc(jo))
                     }
                 }
             } else {
-                Log.runtime(TAG, jo.optString("resultDesc"))
+                if (isHelpCleanLimit(jo)) {
+                    markHelpCleanLimit(jo)
+                } else {
+                    Log.runtime(TAG, extractOceanResultDesc(jo))
+                }
             }
         } catch (t: Throwable) {
-            Log.runtime(TAG, "queryMiscInfo err:")
+            Log.runtime(TAG, "cleanFriendOcean err:")
             Log.printStackTrace(TAG, t)
         }
     }
@@ -805,7 +918,11 @@ class AntOcean : ModelTask() {
         val s = AntOceanRpcCall.fillUserFlag(ja)
         val jo = JsonUtil.parseJSONObjectOrNull(s) ?: return
         if (!ResChecker.checkRes(TAG, jo)) {
-            Log.runtime(TAG, jo.optString("resultDesc"))
+            if (isHelpCleanLimit(jo)) {
+                markHelpCleanLimit(jo)
+            } else {
+                Log.runtime(TAG, extractOceanResultDesc(jo))
+            }
             return
         }
 
@@ -824,7 +941,11 @@ class AntOcean : ModelTask() {
             val s = AntOceanRpcCall.queryUserRanking()
             val jo = JsonUtil.parseJSONObjectOrNull(s) ?: return
             if (!ResChecker.checkRes(TAG, jo)) {
-                Log.runtime(TAG, jo.optString("resultDesc"))
+                if (isHelpCleanLimit(jo)) {
+                    markHelpCleanLimit(jo)
+                } else {
+                    Log.runtime(TAG, extractOceanResultDesc(jo))
+                }
                 return
             }
 
@@ -906,6 +1027,17 @@ class AntOcean : ModelTask() {
                     // 在处理任何任务前，先检查黑名单
                     if (badTaskSet.contains(taskTitle) || badTaskSet.contains(taskType)) {
                         Log.record(TAG, "海洋任务🌊[$taskTitle]已在黑名单中，跳过处理")
+                        continue
+                    }
+
+                    if (!isRewardReadyStatus(taskStatus) && isSelfCleanTask(taskType, taskTitle)) {
+                        if (retrySelfOceanCleanIfNeeded(taskTitle)) {
+                            done = true
+                        }
+                        continue
+                    }
+
+                    if (!isRewardReadyStatus(taskStatus) && isOceanActionTask(taskType, taskTitle)) {
                         continue
                     }
 
