@@ -328,12 +328,12 @@ class ForestChouChouLe {
         Log.record("${s.name} 领取奖励: $name")
         sleepCompat(100L)
         val res = AntForestRpcCall.receiveTaskAwardopengreen(SOURCE, code, type).toJson()
-        return if (res != null && res.check()) {
-            Log.forest("${s.name} 🧾 $name 奖励领取成功")
-            true
-        } else if (res != null && res.isTaskAwardAlreadyFinished()) {
+        return if (res != null && res.isTaskAwardAlreadyFinished()) {
             Log.record("${s.name} 奖励已领取: $name")
             false
+        } else if (res != null && res.check()) {
+            Log.forest("${s.name} 🧾 $name 奖励领取成功")
+            true
         } else {
             Log.error(TAG, "${s.name} 奖励领取失败: $name")
             false

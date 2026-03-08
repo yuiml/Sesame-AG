@@ -14,24 +14,76 @@ import java.util.UUID
  * 森林 RPC 调用类
  */
 object AntForestRpcCall {
-    private var VERSION = "20250813"
+    private const val DEFAULT_SOURCE = "chInfo_ch_appcenter__chsub_9patch"
+    private var VERSION = "20250818"
+    private var HOME_PAGE_VERSION = "20250818"
+    private var TASK_LIST_VERSION = "20250821"
+    private var TASK_LIST_EXT_VERSION = "20260109"
 
     @JvmStatic
     fun init() {
         val alipayVersion = fansirsqi.xposed.sesame.hook.ApplicationHook.alipayVersion
         Log.record("AntForestRpcCall", "当前支付宝版本: $alipayVersion")
         try {
-            VERSION = when (alipayVersion.versionString) {
-                "10.7.30.8000" -> "20250813"  // 2025年版本
-                "10.5.88.8000" -> "20240403"  // 2024年版本
-                "10.3.96.8100" -> "20230501"  // 2023年版本
-                else -> "20250813"
+            when (alipayVersion.versionString) {
+                "10.8.20.8000" -> {
+                    VERSION = "20250818"
+                    HOME_PAGE_VERSION = "20250818"
+                    TASK_LIST_VERSION = "20250821"
+                    TASK_LIST_EXT_VERSION = "20260109"
+                }
+
+                "10.7.30.8000" -> {
+                    VERSION = "20250813"
+                    HOME_PAGE_VERSION = "20250813"
+                    TASK_LIST_VERSION = "20250813"
+                    TASK_LIST_EXT_VERSION = "20250813"
+                }
+
+                "10.5.88.8000" -> {
+                    VERSION = "20240403"
+                    HOME_PAGE_VERSION = "20240403"
+                    TASK_LIST_VERSION = "20240403"
+                    TASK_LIST_EXT_VERSION = "20240403"
+                }
+
+                "10.3.96.8100" -> {
+                    VERSION = "20230501"
+                    HOME_PAGE_VERSION = "20230501"
+                    TASK_LIST_VERSION = "20230501"
+                    TASK_LIST_EXT_VERSION = "20230501"
+                }
+
+                else -> {
+                    VERSION = "20250818"
+                    HOME_PAGE_VERSION = "20250818"
+                    TASK_LIST_VERSION = "20250821"
+                    TASK_LIST_EXT_VERSION = "20260109"
+                }
             }
-            Log.record("AntForestRpcCall", "使用API版本: $VERSION")
+            Log.record(
+                "AntForestRpcCall",
+                "使用API版本: $VERSION, 首页版本: $HOME_PAGE_VERSION, 任务版本: $TASK_LIST_VERSION"
+            )
         } catch (e: Exception) {
             Log.error("AntForestRpcCall", "版本初始化异常，使用默认版本: $VERSION")
             Log.printStackTrace(e)
         }
+    }
+
+    private fun createTaskListExtend(extra: JSONObject? = null): JSONObject {
+        val extend = JSONObject().apply {
+            put("osType", "android")
+            put("version", TASK_LIST_EXT_VERSION)
+        }
+        if (extra != null) {
+            val keys = extra.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                extend.put(key, extra.opt(key))
+            }
+        }
+        return extend
     }
 
     /**
@@ -175,8 +227,8 @@ object AntForestRpcCall {
             put("activityParam", JSONObject())
             put("configVersionMap", JSONObject().put("wateringBubbleConfig", "0"))
             put("skipWhackMole", false)
-            put("source", "chInfo_ch_appcenter__chsub_9patch")
-            put("version", VERSION)
+            put("source", DEFAULT_SOURCE)
+            put("version", HOME_PAGE_VERSION)
         }
         return RequestManager.requestString(
             "alipay.antforest.forest.h5.queryHomePage",
@@ -209,12 +261,16 @@ object AntForestRpcCall {
         return try {
             val actualFromAct = fromAct ?: "TAKE_LOOK_FRIEND"
             val arg = JSONObject().apply {
+                put("activityParam", JSONObject())
                 put("canRobFlags", "T,F,F,F,F")
                 put("configVersionMap", JSONObject().put("wateringBubbleConfig", "0"))
-                put("source", "chInfo_ch_appcenter__chsub_9patch")
+                put("currentEnergy", 0)
+                put("currentVitalityAmount", 0)
+                put("skipWhackMole", false)
+                put("source", DEFAULT_SOURCE)
                 put("userId", userId)
                 put("fromAct", actualFromAct)
-                put("version", VERSION)
+                put("version", HOME_PAGE_VERSION)
             }
             RequestManager.requestString("alipay.antforest.forest.h5.queryFriendHomePage", "[$arg]", 3, 1000)
         } catch (e: Exception) {
@@ -378,13 +434,36 @@ object AntForestRpcCall {
     @JvmStatic
     @Throws(JSONException::class)
     fun queryTaskList(): String {
+        return queryTaskList("home_task_list", DEFAULT_SOURCE, JSONObject(), VERSION)
+    }
+
+    @JvmStatic
+    @Throws(JSONException::class)
+    fun queryTaskList(
+        fromAct: String,
+        source: String = DEFAULT_SOURCE,
+        extend: JSONObject = createTaskListExtend(),
+        version: String = TASK_LIST_VERSION
+    ): String {
         val jo = JSONObject().apply {
-            put("extend", JSONObject())
-            put("fromAct", "home_task_list")
-            put("source", "chInfo_ch_appcenter__chsub_9patch")
-            put("version", VERSION)
+            put("extend", extend)
+            put("fromAct", fromAct)
+            put("source", source)
+            put("version", version)
         }
         return RequestManager.requestString("alipay.antforest.forest.h5.queryTaskList", JSONArray().put(jo).toString())
+    }
+
+    @JvmStatic
+    @Throws(JSONException::class)
+    fun queryLeafTaskList(): String {
+        return queryTaskList("home_leaves_task_list")
+    }
+
+    @JvmStatic
+    @Throws(JSONException::class)
+    fun queryTakeLookEndTaskList(): String {
+        return queryTaskList("take_look_end_task_list")
     }
 
     @JvmStatic
@@ -460,9 +539,10 @@ object AntForestRpcCall {
         val jo = JSONObject().apply {
             put("fromAct", "pop_task")
             put("needInitSign", false)
-            put("source", "chInfo_ch_appcenter__chsub_9patch")
+            put("needTeamPlantRewardInfo", false)
+            put("source", DEFAULT_SOURCE)
             put("statusList", JSONArray().put("TODO").put("FINISHED"))
-            put("version", VERSION)
+            put("version", HOME_PAGE_VERSION)
         }
         return RequestManager.requestString("alipay.antforest.forest.h5.popupTask", JSONArray().put(jo).toString())
     }
