@@ -1615,13 +1615,15 @@ class AntForest : ModelTask(), EnergyCollectCallback {
      */
     private fun queryFriendHome(userId: String?, fromAct: String?, forceRefresh: Boolean = false): JSONObject? {
         val safeUserId = userId ?: return null
+        val actualFromAct = fromAct ?: "TAKE_LOOK_FRIEND"
+        val cacheKey = "$safeUserId#$actualFromAct"
         if (!forceRefresh) {
-            friendHomeCache[safeUserId]?.let { return it }
+            friendHomeCache[cacheKey]?.let { return it }
         }
         var friendHomeObj: JSONObject? = null
         try {
             val start = System.currentTimeMillis()
-            val response = AntForestRpcCall.queryFriendHomePage(safeUserId, fromAct)
+            val response = AntForestRpcCall.queryFriendHomePage(safeUserId, actualFromAct)
             if (response.trim { it <= ' ' }.isEmpty()) {
                 //               Log.error( TAG, "获取好友主页信息失败：响应为空, userId: " + UserMap.getMaskName(userId) + response)
                 return null
@@ -1633,7 +1635,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 ForestUtil.checkAndRecordFrequencyError(safeUserId, friendHomeObj)
                 return null
             }
-            friendHomeCache[safeUserId] = friendHomeObj
+            friendHomeCache[cacheKey] = friendHomeObj
             val end = System.currentTimeMillis()
             // 安全获取服务器时间，如果没有则使用当前时间
             val serverTime = friendHomeObj.optLong("now", System.currentTimeMillis())
@@ -2683,8 +2685,13 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 Log.record(TAG, "  正在查询好友 [$userName$userId] 的主页...")
                 userHomeObj = collectEnergy(userId, queryFriendHome(userId, null), "friend")
             }
-            if (userHomeObj == null && (needHelpProtect || needCollectGiftBox)) {
-                userHomeObj = queryFriendHome(userId, null)
+            if (needHelpProtect || needCollectGiftBox) {
+                val shouldRefreshExtraBenefitHome = userHomeObj == null ||
+                    (needHelpProtect && !shouldProtectFriendEnergyFromHome(userId, userHomeObj)) ||
+                    (needCollectGiftBox && !shouldCollectGiftBoxFromHome(userHomeObj))
+                if (shouldRefreshExtraBenefitHome) {
+                    userHomeObj = queryFriendHome(userId, "rankNew", forceRefresh = userHomeObj != null)
+                }
             }
             handleFriendExtraBenefits(userId, userHomeObj)
         }
@@ -3442,6 +3449,43 @@ class AntForest : ModelTask(), EnergyCollectCallback {
         }
     }
 
+    private fun forestTaskSettleDelayMs(taskType: String, taskTitle: String, bizInfo: JSONObject): Long {
+        val texts = sequenceOf(
+            taskType,
+            taskTitle,
+            bizInfo.optString("taskDesc"),
+            bizInfo.optString("taskContent"),
+            bizInfo.optString("taskJumpUrl")
+        ).filter { it.isNotBlank() }.toList()
+
+        val secondRegex = Regex("(\\d{1,3})\\s*(?:s|秒)", RegexOption.IGNORE_CASE)
+        val waitSeconds = texts.asSequence()
+            .flatMap { text ->
+                secondRegex.findAll(text).mapNotNull { matchResult ->
+                    matchResult.groupValues.getOrNull(1)?.toIntOrNull()
+                }
+            }
+            .maxOrNull()
+
+        if (waitSeconds != null && waitSeconds > 0) {
+            return (waitSeconds + 3L).coerceAtMost(40L) * 1000L
+        }
+
+        val combinedText = texts.joinToString(separator = " ")
+        return if (
+            taskType.startsWith("GYG_") ||
+            combinedText.contains("逛一逛") ||
+            combinedText.contains("去逛") ||
+            combinedText.contains("去看看") ||
+            combinedText.contains("玩一玩") ||
+            combinedText.contains("试玩")
+        ) {
+            12_000L
+        } else {
+            0L
+        }
+    }
+
     private fun appendSignInfo(signInfo: JSONObject?, uniqueSigns: MutableMap<String, JSONObject>) {
         val safeSignInfo = signInfo ?: return
         val signId = safeSignInfo.optString("signId")
@@ -3608,12 +3652,18 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 val finishTaskResponse = JSONObject(AntForestRpcCall.finishTask(sceneCode, taskType))
                 when {
                     isForestTaskAlreadyHandled(finishTaskResponse) -> {
+                        forestTaskTryCount.remove(bizKey)
                         Log.record(TAG, "任务已完结: $taskTitle")
                         true
                     }
 
                     ResChecker.checkRes(TAG + "完成森林任务失败:", finishTaskResponse) -> {
+                        forestTaskTryCount.remove(bizKey)
                         Log.forest("森林任务🧾️[$taskTitle]")
+                        val settleDelayMs = forestTaskSettleDelayMs(taskType, taskTitle, bizInfo)
+                        if (settleDelayMs > 0) {
+                            GlobalThreadPools.sleepCompat(settleDelayMs)
+                        }
                         true
                     }
 
@@ -3650,7 +3700,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             )
 
             var loopCount = 0
-            while (loopCount < 4 && !Thread.currentThread().isInterrupted) {
+            while (loopCount < 8 && !Thread.currentThread().isInterrupted) {
                 loopCount++
                 if (Thread.currentThread().isInterrupted) {
                     return

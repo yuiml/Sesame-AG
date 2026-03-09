@@ -86,11 +86,11 @@ object AntOceanRpcCall {
     }
     
     @JvmStatic
-    fun finishTask(sceneCode: String, taskType: String): String {
+    fun finishTask(sceneCode: String, taskType: String, source: String = SOURCE_OCEAN): String {
         val outBizNo = "${taskType}_${RandomUtil.nextDouble()}"
         return RequestManager.requestString(
             "com.alipay.antiep.finishTask",
-            "[{\"outBizNo\":\"$outBizNo\",\"requestType\":\"RPC\",\"sceneCode\":\"$sceneCode\",\"source\":\"$SOURCE_OCEAN\",\"taskType\":\"$taskType\",\"uniqueId\":\"${getUniqueId()}\"}]"
+            "[{\"outBizNo\":\"$outBizNo\",\"requestType\":\"RPC\",\"sceneCode\":\"$sceneCode\",\"source\":\"$source\",\"taskType\":\"$taskType\",\"uniqueId\":\"${getUniqueId()}\"}]"
         )
     }
     
