@@ -96,6 +96,12 @@ class AntMember : ModelTask() {
     private var sesameGrainExchange: BooleanModelField? = null
     private var sesameGrainExchangeList: SelectModelField? = null
 
+    private enum class MemberTaskExecutionMethod {
+        UNSUPPORTED,
+        MEMTASK_EXECUTE,
+        ADTASK_FINISH
+    }
+
     private data class MemberTaskExecution(
         val taskConfigId: String,
         val taskProcessId: String,
@@ -105,9 +111,10 @@ class AntMember : ModelTask() {
         val bizSubType: String,
         val bizParam: String,
         val waitMillis: Long,
-        val canExecuteByRpc: Boolean,
+        val executionMethod: MemberTaskExecutionMethod,
         val targetBusiness: String,
-        val maxExecutionsPerRound: Int
+        val maxExecutionsPerRound: Int,
+        val finishBizId: String = ""
     )
 
     private data class MemberTaskProcessOutcome(
@@ -1997,50 +2004,84 @@ class AntMember : ModelTask() {
                 record(TAG, "会员任务🎖️[${taskExecution.title}]#黑名单任务，停止执行")
                 return@run MemberTaskProcessOutcome(MemberTaskProcessResult.SKIPPED_BLACKLIST)
             }
-            if (!taskExecution.canExecuteByRpc) {
-                delay(taskExecution.waitMillis)
-                if (checkMemberTaskFinished(taskExecution.taskConfigId, taskExecution.taskProcessId)) {
-                    Log.other("会员任务🎖️[${taskExecution.title}]#获得积分${taskExecution.awardPoint}")
-                    return@run MemberTaskProcessOutcome(
-                        MemberTaskProcessResult.COMPLETED,
-                        taskExecution.maxExecutionsPerRound
+            when (taskExecution.executionMethod) {
+                MemberTaskExecutionMethod.UNSUPPORTED -> {
+                    delay(taskExecution.waitMillis)
+                    if (checkMemberTaskFinished(taskExecution.taskConfigId, taskExecution.taskProcessId)) {
+                        Log.other("会员任务🎖️[${taskExecution.title}]#获得积分${taskExecution.awardPoint}")
+                        return@run MemberTaskProcessOutcome(
+                            MemberTaskProcessResult.COMPLETED,
+                            taskExecution.maxExecutionsPerRound
+                        )
+                    }
+                    record(
+                        TAG,
+                        "会员任务🎖️[${taskExecution.title}]#暂不支持RPC自动执行(targetBusiness=${taskExecution.targetBusiness})"
                     )
+                    return@run MemberTaskProcessOutcome(MemberTaskProcessResult.SKIPPED_UNSUPPORTED)
                 }
-                record(
-                    TAG,
-                    "会员任务🎖️[${taskExecution.title}]#暂不支持RPC自动执行(targetBusiness=${taskExecution.targetBusiness})"
-                )
-                return@run MemberTaskProcessOutcome(MemberTaskProcessResult.SKIPPED_UNSUPPORTED)
-            }
-            delay(taskExecution.waitMillis)
-            val executeResponse = AntMemberRpcCall.executeMemberTask(
-                taskExecution.bizParam,
-                taskExecution.bizSubType,
-                taskExecution.bizType
-            )
-            val executeObject = JSONObject(executeResponse)
-            if (isSkippableMemberTaskRejection(executeObject)) {
-                record(TAG, "会员任务🎖️[${taskExecution.title}]#不满足营销规则，跳过执行")
-                return@run MemberTaskProcessOutcome(MemberTaskProcessResult.SKIPPED_UNSUPPORTED)
-            }
-            if (!ResChecker.checkRes(TAG + "执行会员任务失败:", executeObject)) {
-                Log.error(TAG, "执行会员任务失败:$executeResponse")
-                val errorCode = executeObject.optString("resultCode").ifEmpty {
-                    executeObject.optString("errorCode")
+
+                MemberTaskExecutionMethod.ADTASK_FINISH -> {
+                    delay(taskExecution.waitMillis)
+                    val finishResponse = AntMemberRpcCall.taskFinish(taskExecution.finishBizId)
+                    val finishObject = JSONObject(finishResponse)
+                    val finishOk = ResChecker.checkRes(TAG + "执行会员任务失败:", finishObject)
+                        || finishObject.optString("resultCode").equals("SUCCESS", true)
+                        || "0" == finishObject.optString("errCode")
+                    if (!finishOk) {
+                        Log.error(TAG, "执行会员任务失败:$finishResponse")
+                        val errorCode = finishObject.optString("resultCode").ifEmpty {
+                            finishObject.optString("errorCode").ifEmpty {
+                                finishObject.optString("errCode")
+                            }
+                        }
+                        if (errorCode.isNotEmpty()) {
+                            autoAddToBlacklist(taskExecution.taskConfigId, taskExecution.title, errorCode)
+                        }
+                        return@run MemberTaskProcessOutcome(MemberTaskProcessResult.FAILED)
+                    }
+                    if (checkMemberTaskFinished(taskExecution.taskConfigId, taskExecution.taskProcessId)) {
+                        Log.other("会员任务🎖️[${taskExecution.title}]#获得积分${taskExecution.awardPoint}")
+                        return@run MemberTaskProcessOutcome(
+                            MemberTaskProcessResult.COMPLETED,
+                            taskExecution.maxExecutionsPerRound
+                        )
+                    }
+                    record(TAG, "会员任务🎖️[${taskExecution.title}]#状态未刷新，等待下轮检查")
                 }
-                if (errorCode.isNotEmpty()) {
-                    autoAddToBlacklist(taskExecution.taskConfigId, taskExecution.title, errorCode)
+
+                MemberTaskExecutionMethod.MEMTASK_EXECUTE -> {
+                    delay(taskExecution.waitMillis)
+                    val executeResponse = AntMemberRpcCall.executeMemberTask(
+                        taskExecution.bizParam,
+                        taskExecution.bizSubType,
+                        taskExecution.bizType
+                    )
+                    val executeObject = JSONObject(executeResponse)
+                    if (isSkippableMemberTaskRejection(executeObject)) {
+                        record(TAG, "会员任务🎖️[${taskExecution.title}]#不满足营销规则，跳过执行")
+                        return@run MemberTaskProcessOutcome(MemberTaskProcessResult.SKIPPED_UNSUPPORTED)
+                    }
+                    if (!ResChecker.checkRes(TAG + "执行会员任务失败:", executeObject)) {
+                        Log.error(TAG, "执行会员任务失败:$executeResponse")
+                        val errorCode = executeObject.optString("resultCode").ifEmpty {
+                            executeObject.optString("errorCode")
+                        }
+                        if (errorCode.isNotEmpty()) {
+                            autoAddToBlacklist(taskExecution.taskConfigId, taskExecution.title, errorCode)
+                        }
+                        return@run MemberTaskProcessOutcome(MemberTaskProcessResult.FAILED)
+                    }
+                    if (checkMemberTaskFinished(taskExecution.taskConfigId, taskExecution.taskProcessId)) {
+                        Log.other("会员任务🎖️[${taskExecution.title}]#获得积分${taskExecution.awardPoint}")
+                        return@run MemberTaskProcessOutcome(
+                            MemberTaskProcessResult.COMPLETED,
+                            taskExecution.maxExecutionsPerRound
+                        )
+                    }
+                    record(TAG, "会员任务🎖️[${taskExecution.title}]#状态未刷新，等待下轮检查")
                 }
-                return@run MemberTaskProcessOutcome(MemberTaskProcessResult.FAILED)
             }
-            if (checkMemberTaskFinished(taskExecution.taskConfigId, taskExecution.taskProcessId)) {
-                Log.other("会员任务🎖️[${taskExecution.title}]#获得积分${taskExecution.awardPoint}")
-                return@run MemberTaskProcessOutcome(
-                    MemberTaskProcessResult.COMPLETED,
-                    taskExecution.maxExecutionsPerRound
-                )
-            }
-            record(TAG, "会员任务🎖️[${taskExecution.title}]#状态未刷新，等待下轮检查")
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "processCurrentMemberTask err:", t)
         }
@@ -2194,11 +2235,47 @@ class AntMember : ModelTask() {
             ?: simpleTaskConfig.optJSONArray("targetBusiness")
         val targetBusiness = targetBusinessArray?.optString(0).orEmpty()
         if (targetBusiness.isEmpty()) {
+            val finishBizId = resolveMemberTaskFinishBizId(simpleTaskConfig)
+            if (finishBizId.isNotEmpty()) {
+                return MemberTaskExecution(
+                    taskConfigId = taskConfigId,
+                    taskProcessId = taskProcessId,
+                    title = title,
+                    awardPoint = awardPoint,
+                    bizType = "",
+                    bizSubType = "",
+                    bizParam = "",
+                    waitMillis = calcMemberTaskWaitMillis(simpleTaskConfig, ""),
+                    executionMethod = MemberTaskExecutionMethod.ADTASK_FINISH,
+                    targetBusiness = "FINISH_ACTION",
+                    maxExecutionsPerRound = 1,
+                    finishBizId = finishBizId
+                )
+            }
             Log.error(TAG, "会员任务[$title]未返回targetBusiness")
             return null
         }
         val targetParts = targetBusiness.split("#")
         if (targetParts.size < 3) {
+            val bizType = targetParts.getOrNull(0).orEmpty()
+            val bizSubType = targetParts.getOrNull(1).orEmpty()
+            val twoPartRpcSupported = targetParts.size == 2 &&
+                shouldExecuteMemberTaskByTwoPartTargetBusiness(title, bizType, bizSubType)
+            if (twoPartRpcSupported) {
+                return MemberTaskExecution(
+                    taskConfigId = taskConfigId,
+                    taskProcessId = taskProcessId,
+                    title = title,
+                    awardPoint = awardPoint,
+                    bizType = bizType,
+                    bizSubType = bizSubType,
+                    bizParam = "",
+                    waitMillis = calcMemberTaskWaitMillis(simpleTaskConfig, bizSubType),
+                    executionMethod = MemberTaskExecutionMethod.MEMTASK_EXECUTE,
+                    targetBusiness = targetBusiness,
+                    maxExecutionsPerRound = 1
+                )
+            }
             return MemberTaskExecution(
                 taskConfigId = taskConfigId,
                 taskProcessId = taskProcessId,
@@ -2208,7 +2285,7 @@ class AntMember : ModelTask() {
                 bizSubType = "",
                 bizParam = "",
                 waitMillis = 2500L,
-                canExecuteByRpc = false,
+                executionMethod = MemberTaskExecutionMethod.UNSUPPORTED,
                 targetBusiness = targetBusiness,
                 maxExecutionsPerRound = 1
             )
@@ -2231,10 +2308,46 @@ class AntMember : ModelTask() {
             bizSubType = bizSubType,
             bizParam = bizParam,
             waitMillis = calcMemberTaskWaitMillis(simpleTaskConfig, bizSubType),
-            canExecuteByRpc = true,
+            executionMethod = MemberTaskExecutionMethod.MEMTASK_EXECUTE,
             targetBusiness = targetBusiness,
             maxExecutionsPerRound = maxExecutionsPerRound
         )
+    }
+
+    private fun resolveMemberTaskFinishBizId(simpleTaskConfig: JSONObject): String {
+        val finishAction = simpleTaskConfig.optJSONObject("finishAction") ?: return ""
+        val finishActionType = finishAction.optString("finishActionType")
+        if (!finishActionType.equals("com.alipay.adtask.biz.mobilegw.service.task.finish", true)) {
+            return ""
+        }
+        return finishAction.optJSONObject("finishActionParam")?.optString("bizId").orEmpty()
+    }
+
+    private fun shouldExecuteMemberTaskByTwoPartTargetBusiness(
+        title: String,
+        bizType: String,
+        bizSubType: String
+    ): Boolean {
+        if (bizType.isBlank() || bizSubType.isBlank()) {
+            return false
+        }
+        if (bizType.equals("CALL_APP", true) || bizType.equals("C2C", true)) {
+            return false
+        }
+        val browseLikeTitle = title.contains("逛") || title.contains("浏览") || title.contains("查看")
+        if (!browseLikeTitle) {
+            return false
+        }
+        if (title.contains("玩")) {
+            return false
+        }
+        if (bizType.startsWith("ngfe_tag__", true) && bizSubType.equals("Y", true)) {
+            return true
+        }
+        if (bizType.equals("YILIAO", true)) {
+            return true
+        }
+        return false
     }
 
     private fun isMemberTaskProcessFinished(taskProcessObject: JSONObject?): Boolean {
@@ -4287,7 +4400,8 @@ class AntMember : ModelTask() {
                 var recordId = task.optString("recordId", "")
                 var responseObj: JSONObject?
 
-                if (task.has("actionUrl") && task.getString("actionUrl").contains("jumpAction")) {
+                val actionUrl = task.optString("actionUrl", "")
+                if (actionUrl.contains("jumpAction") && !actionUrl.contains("jumpAction=userGrowth")) {
                     record(TAG, "芝麻信用💳[跳过跳转APP任务]#$taskTitle")
                     skippedCount++
                     continue
