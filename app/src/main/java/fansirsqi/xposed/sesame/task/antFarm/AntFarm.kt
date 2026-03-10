@@ -3006,14 +3006,27 @@ class AntFarm : ModelTask() {
                     subFarmVO.getJSONObject("manureVO").getJSONArray("manurePotList")
                 for (i in 0..<manurePotList.length()) {
                     val manurePot = manurePotList.getJSONObject(i)
-                    if (manurePot.getInt("manurePotNum") >= 100) { //粪肥数量
+                    // 兼容：manurePotNum 既可能是整数(直接为数量)，也可能是 0~1 的比例值
+                    val manurePotNumRaw = manurePot.optDouble("manurePotNum", 0.0)
+                    val manurePotLimit = manurePot.optDouble("manurePotLimit", 0.0)
+                    val manurePotNum = when {
+                        manurePotNumRaw <= 0.0 -> 0.0
+                        manurePotNumRaw <= 1.0 && manurePotLimit > 0.0 -> manurePotNumRaw * manurePotLimit
+                        else -> manurePotNumRaw
+                    }
+
+                    if (manurePotNum >= 100.0) { //粪肥数量（按旧逻辑阈值 100g）
+                        val manurePotNO = manurePot.optString("manurePotNO")
+                        if (manurePotNO.isBlank()) {
+                            continue
+                        }
                         val joManurePot =
-                            JSONObject(AntFarmRpcCall.collectManurePot(manurePot.getString("manurePotNO")))
+                            JSONObject(AntFarmRpcCall.collectManurePot(manurePotNO))
                         if (ResChecker.checkRes(TAG, joManurePot)) {
-                            val collectManurePotNum = joManurePot.getInt("collectManurePotNum")
-                            Log.farm("打扫鸡屎🧹[" + collectManurePotNum + "g]" + i + 1 + "次")
+                            val collectManurePotNum = joManurePot.optInt("collectManurePotNum", 0)
+                            Log.farm("打扫鸡屎🧹[" + collectManurePotNum + "g]" + (i + 1) + "次")
                         } else {
-                            Log.record(TAG, "打扫鸡屎失败: 第" + i + 1 + "次" + joManurePot)
+                            Log.record(TAG, "打扫鸡屎失败: 第" + (i + 1) + "次" + joManurePot)
                         }
                     }
                 }

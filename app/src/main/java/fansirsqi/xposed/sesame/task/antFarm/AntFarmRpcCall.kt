@@ -769,7 +769,8 @@ object AntFarmRpcCall {
         if (drawType == "ipDraw") {
             return "ANTFARM_IP_DRAW_TASK"
         }
-        return "ANTFARM_DRAW_TIMES_TASK"
+        // 日常抽抽乐任务场景
+        return "ANTFARM_DAILY_DRAW_TASK"
     }
 
     /**
