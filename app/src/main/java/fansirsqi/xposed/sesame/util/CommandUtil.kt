@@ -54,11 +54,17 @@ object CommandUtil {
     private val bindMutex = Mutex()
     private val isBound = AtomicBoolean(false)
     private var connectionDeferred: CompletableDeferred<Boolean>? = null
+    @Volatile
+    private var lastStatusType: String? = null
 
     // --- 监听器实现 ---
     private val statusListener = object : IStatusListener.Stub() {
         override fun onStatusChanged(type: String) {
-            Log.i(TAG, "收到服务端状态推送: $type")
+            val previousType = lastStatusType
+            lastStatusType = type
+            if (previousType != type || (type != "loading" && type != "no_executor")) {
+                Log.i(TAG, "收到服务端状态推送: $type")
+            }
             // 更新 Flow (StateFlow 是线程安全的)
             _serviceStatus.value = mapTypeToStatus(type)
         }
@@ -95,15 +101,19 @@ object CommandUtil {
         }
     }
 
-    private fun handleServiceLost() {
+    private fun handleServiceLost(updateStatus: Boolean = true) {
         commandService = null
         isBound.set(false)
         connectionDeferred = null
-        _serviceStatus.value = ServiceStatus.Inactive // 更新状态为断开
+        lastStatusType = null
+        if (updateStatus) {
+            _serviceStatus.value = ServiceStatus.Inactive // 更新状态为断开
+        }
     }
 
     private fun mapTypeToStatus(typeName: String): ServiceStatus {
         return when (typeName) {
+            "loading" -> ServiceStatus.Loading
             "SafeRootShell", "RootShell" -> ServiceStatus.Active("Root")
             "ShizukuShell" -> ServiceStatus.Active("Shizuku")
             "no_executor", "Unknown" -> ServiceStatus.Inactive
@@ -137,7 +147,7 @@ object CommandUtil {
             // 开始连接前，状态置为 Loading
             _serviceStatus.value = ServiceStatus.Loading
 
-            handleServiceLost()
+            handleServiceLost(updateStatus = false)
             connectionDeferred = CompletableDeferred()
 
             val intent = Intent().apply {

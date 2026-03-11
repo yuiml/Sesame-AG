@@ -17,12 +17,11 @@ class SafeRootShell : Shell {
     override val PERMISSION_LEVEL: String = "Root"
 
     override suspend fun isAvailable(): Boolean {
-        // 直接传原始命令，不需要自己拼 "su -c ..."
-        val result = runCommand("echo test", TEST_TIMEOUT)
+        val result = runCommand("echo test", TEST_TIMEOUT, logFailure = false)
 
         val available = result.isSuccess && result.stdout.trim().contains("test")
         if (!available) {
-            Log.w(TAG, "Root检测失败: Code=${result.exitCode}, Err='${result.stderr}'")
+            Log.d(TAG, "Root不可用: Code=${result.exitCode}, Err='${result.stderr}'")
         }
         return available
     }
@@ -35,7 +34,11 @@ class SafeRootShell : Shell {
         return runCommand(command, timeoutMillis)
     }
 
-    private suspend fun runCommand(cmd: String, timeoutMillis: Long): ShellResult {
+    private suspend fun runCommand(
+        cmd: String,
+        timeoutMillis: Long,
+        logFailure: Boolean = true
+    ): ShellResult {
         return withContext(Dispatchers.IO) {
             try {
                 if (timeoutMillis < Long.MAX_VALUE) {
@@ -44,7 +47,11 @@ class SafeRootShell : Shell {
                     executeSu(cmd)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "命令执行异常: ${e.message}")
+                if (logFailure) {
+                    Log.e(TAG, "命令执行异常: ${e.message}")
+                } else {
+                    Log.d(TAG, "Root探测失败: ${e.message}")
+                }
                 ShellResult.error(e.message ?: "Execution failed")
             }
         }

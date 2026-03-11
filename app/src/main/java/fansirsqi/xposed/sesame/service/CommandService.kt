@@ -64,9 +64,17 @@ class CommandService : Service() {
                 commandMutex.withLock {
                     try {
                         ensureShellManager()
-                        // 优化: 如果 ShellManager 依然没有 Shell，尝试重置一下（应对 Shizuku 刚授权的情况）
+                        shellManager?.onStateChanged = { newType ->
+                            dispatchStatusChange(newType)
+                        }
+
                         if (shellManager?.selectedName == "no_executor") {
-                            shellManager?.reset()
+                            val refreshedType = shellManager?.refreshSelection(notifyUnavailable = false)
+                            if (refreshedType == "no_executor") {
+                                dispatchStatusChange("no_executor")
+                                safeCallbackError(callback, "无 Root/Shizuku 权限")
+                                return@withLock
+                            }
                         }
 
                         // 执行
@@ -100,8 +108,26 @@ class CommandService : Service() {
          */
         override fun registerListener(listener: IStatusListener?) {
             listeners.register(listener)
-            // 💡 注册时立即回调一次当前状态，防止客户端状态不同步
-            listener?.onStatusChanged(shellManager?.selectedName)
+            val currentType = shellManager?.selectedName
+            if (currentType.isNullOrBlank() || currentType == "no_executor") {
+                listener?.onStatusChanged("loading")
+                serviceScope.launch {
+                    try {
+                        ensureShellManager()
+                        shellManager?.onStateChanged = { newType ->
+                            dispatchStatusChange(newType)
+                        }
+                        val refreshedType = shellManager?.refreshSelection(notifyUnavailable = false)
+                        if (refreshedType == "no_executor") {
+                            listener?.onStatusChanged("no_executor")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "注册监听后刷新 Shell 状态失败", e)
+                    }
+                }
+            } else {
+                listener?.onStatusChanged(currentType)
+            }
         }
 
         /**
@@ -127,6 +153,7 @@ class CommandService : Service() {
                 shellManager?.onStateChanged = { newType ->
                     dispatchStatusChange(newType)
                 }
+                shellManager?.refreshSelection(notifyUnavailable = false)
             } catch (e: Exception) {
                 Log.e(TAG, "ShellManager 初始化失败", e)
             }

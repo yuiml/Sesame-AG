@@ -18,14 +18,14 @@ class ShellManager(context: Context) {
     var onStateChanged: ((String) -> Unit)? = null
 
     // 1. 移除 UserShell，只保留特权 Shell
-    private val executors = listOf(
-        SafeRootShell(),
-        ShizukuShell(context)
-    )
+    private val rootShell = SafeRootShell()
+    private val shizukuShell = ShizukuShell(context)
 
     // 使用 Volatile 确保多线程下的可见性
     @Volatile
     private var selectedShell: Shell? = null
+    @Volatile
+    private var lastNotifiedType: String? = null
 
     /**
      * 获取当前使用的 Shell 名称
@@ -34,8 +34,12 @@ class ShellManager(context: Context) {
         get() = selectedShell?.javaClass?.simpleName ?: "no_executor"
 
 
-    private fun notifyChange() {
+    private fun notifyChange(force: Boolean = false) {
         val currentType = selectedName // 获取当前类型 (SafeRootShell/Shizuku/no_executor)
+        if (!force && currentType == lastNotifiedType) {
+            return
+        }
+        lastNotifiedType = currentType
         Log.d(TAG, "Shell状态变更 -> $currentType")
         onStateChanged?.invoke(currentType)
     }
@@ -45,22 +49,31 @@ class ShellManager(context: Context) {
      * 用于强制重置选择状态（例如 Shizuku 授权后）
      */
     fun reset() {
+        if (selectedShell == null) {
+            return
+        }
         selectedShell = null
         Log.d(TAG, "ShellManager 已重置，下次执行将重新选择 Executor")
         notifyChange() // 🔥 通知：重置了
     }
 
-    private suspend fun selectExecutor() {
+    private suspend fun selectExecutor(notifyUnavailable: Boolean = true) {
         // 如果已经选中且可用，直接返回
         if (selectedShell != null && selectedShell!!.isAvailable()) return
 
         Log.d(TAG, "正在寻找可用的 Root 或 Shizuku Shell...")
 
+        val shizukuReady = isShizukuReady()
+        val executors = if (shizukuReady) {
+            listOf<Shell>(shizukuShell, rootShell)
+        } else {
+            listOf<Shell>(rootShell, shizukuShell)
+        }
+
         for (shell in executors) {
             try {
-                // 3. 针对 Shizuku 做特殊检查，防止未授权时报错或假死
                 if (shell is ShizukuShell) {
-                    if (!isShizukuReady()) {
+                    if (!shizukuReady) {
                         Log.d(TAG, "跳过 ShizukuShell: 未授权或服务未运行")
                         continue
                     }
@@ -78,7 +91,14 @@ class ShellManager(context: Context) {
         }
         // 如果都失败了，置空
         selectedShell = null
-        notifyChange() // 🔥 通知：变成 None 了
+        if (notifyUnavailable) {
+            notifyChange() // 🔥 通知：变成 None 了
+        }
+    }
+
+    suspend fun refreshSelection(notifyUnavailable: Boolean = true): String {
+        selectExecutor(notifyUnavailable)
+        return selectedName
     }
 
     /**
