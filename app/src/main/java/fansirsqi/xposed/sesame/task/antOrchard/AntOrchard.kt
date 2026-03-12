@@ -272,6 +272,10 @@ class AntOrchard : ModelTask() {
 
                 val taobaoDataStr = orchardIndexData.optString("taobaoData")
                 if (taobaoDataStr.isEmpty()) break
+                val spreadStageLeftTimesBefore = orchardIndexData.optJSONObject("spreadManureActivity")
+                    ?.optJSONObject("spreadManureStage")
+                    ?.optInt("leftSpreadManureTimes", Int.MAX_VALUE)
+                    ?: Int.MAX_VALUE
 
                 // {{ 修改：适配不同场景的肥料数据结构 }}
                 val taobaoData = JSONObject(taobaoDataStr)
@@ -374,6 +378,9 @@ class AntOrchard : ModelTask() {
                 CoroutineUtils.sleepCompat(500)
                 // 检查施肥后礼盒
                 checkFertilizerBox(targetScene)
+                if (spreadStageLeftTimesBefore in 1..actualWaterTimes) {
+                    tryReceiveSpreadManureActivityAwardByQueryIndex()
+                }
 
             } finally {
                 CoroutineUtils.sleepCompat(executeIntervalInt.toLong())

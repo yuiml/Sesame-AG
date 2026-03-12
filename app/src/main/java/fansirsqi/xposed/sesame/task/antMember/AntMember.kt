@@ -295,6 +295,7 @@ class AntMember : ModelTask() {
                 // 并行执行独立任务
                 val deferredTasks = mutableListOf<Deferred<Unit>>()
                 var needMemberPointClaimAfterTasks = false
+                var needSesameCollectAfterTasks = false
                 var needSesameProgressCollectAfterTasks = false
 
                 if (memberSign?.value == true) {
@@ -351,11 +352,8 @@ class AntMember : ModelTask() {
                             if (hasFlagToday(StatusFlags.FLAG_ANTMEMBER_COLLECT_SESAME_DONE)) {
                                 record(TAG, "⏭️ 今天已处理过芝麻粒领取，跳过执行")
                             } else {
-                                deferredTasks.add(async(Dispatchers.IO) {
-                                    collectSesame(
-                                        collectSesameWithOneClick?.value == true
-                                    )
-                                })
+                                needSesameCollectAfterTasks = true
+                                record(TAG, "🎯 芝麻相关任务执行中，稍后统一领取芝麻粒")
                             }
                         }
                     }
@@ -477,8 +475,27 @@ class AntMember : ModelTask() {
                     if (ApplicationHookConstants.isOffline()) {
                         record(TAG, "⏭️ 当前处于离线模式，跳过统一领取会员积分")
                     } else {
+                        if (
+                            memberSign?.value == true &&
+                            !hasFlagToday(StatusFlags.FLAG_ANTMEMBER_MEMBER_FLOATING_BALL_DONE)
+                        ) {
+                            record(TAG, "🎁 会员积分领取前补查浮球宝箱")
+                            if (processMemberFloatingBall()) {
+                                setFlagToday(StatusFlags.FLAG_ANTMEMBER_MEMBER_FLOATING_BALL_DONE)
+                            } else {
+                                record(TAG, "会员签到🎁[浮球宝箱补查未完成]")
+                            }
+                        }
                         record(TAG, "🎯 会员流程执行完成，开始统一领取会员积分")
                         queryPointCert(1, 20)
+                    }
+                }
+                if (needSesameCollectAfterTasks) {
+                    if (ApplicationHookConstants.isOffline()) {
+                        record(TAG, "⏭️ 当前处于离线模式，跳过统一领取芝麻粒")
+                    } else {
+                        record(TAG, "🎯 芝麻相关流程执行完成，开始统一领取芝麻粒")
+                        collectSesame(collectSesameWithOneClick?.value == true)
                     }
                 }
                 if (needSesameProgressCollectAfterTasks) {
@@ -1413,14 +1430,23 @@ class AntMember : ModelTask() {
 
     private suspend fun processMemberFloatingBall(): Boolean = CoroutineUtils.run {
         try {
+            var signInAdQueryFailed = false
             val signInAdTaskResp = AntMemberRpcCall.querySignInAdTaskList()
             delay(500)
             val signInAdTaskObject = JSONObject(signInAdTaskResp)
-            if (!ResChecker.checkRes(TAG + "会员签到浮球任务查询失败:", signInAdTaskObject)) {
+            val signInAdTaskConfigIdList = if (
+                !ResChecker.checkRes(
+                    TAG + "会员签到浮球任务查询失败:",
+                    signInAdTaskObject
+                )
+            ) {
+                signInAdQueryFailed = true
                 Log.error(TAG, "会员签到浮球任务查询失败:$signInAdTaskResp")
-                return@run false
+                record(TAG, "会员签到🎁[浮球前置任务查询失败，继续尝试查询宝箱状态]")
+                emptyList()
+            } else {
+                collectSignInAdTaskConfigIds(signInAdTaskObject)
             }
-            val signInAdTaskConfigIdList = collectSignInAdTaskConfigIds(signInAdTaskObject)
             if (signInAdTaskConfigIdList.isNotEmpty()) {
                 val batchApplyResponse =
                     AntMemberRpcCall.batchApplyMemberTask(signInAdTaskConfigIdList, "adFeeds")
@@ -1441,6 +1467,10 @@ class AntMember : ModelTask() {
             }
             val floatingBallTask = buildMemberFloatingBallTask(queryFloatingBallObject)
             if (floatingBallTask == null) {
+                if (signInAdQueryFailed) {
+                    record(TAG, "会员签到🎁[浮球状态可查但前置任务查询失败，稍后重试]")
+                    return@run false
+                }
                 if (signInAdTaskConfigIdList.isEmpty()) {
                     record(TAG, "会员签到🎁[今日无浮球宝箱奖励]")
                     return@run true
@@ -1600,23 +1630,39 @@ class AntMember : ModelTask() {
             return "OFFLINE_MODE"
         }
         val code = sequenceOf(
-            jsonObject.optString("resultCode"),
-            jsonObject.optString("errorCode"),
-            jsonObject.optString("error"),
-            jsonObject.optString("errorTip")
-        ).firstOrNull { it.isNotBlank() }.orEmpty()
+            jsonObject.opt("resultCode")?.toString(),
+            jsonObject.opt("errorCode")?.toString(),
+            jsonObject.opt("error")?.toString(),
+            jsonObject.opt("errorTip")?.toString()
+        ).filterNotNull()
+            .firstOrNull { it.isNotBlank() }
+            .orEmpty()
         val desc = sequenceOf(
-            jsonObject.optString("resultDesc"),
-            jsonObject.optString("memo"),
-            jsonObject.optString("desc"),
-            jsonObject.optString("errorMsg"),
-            jsonObject.optString("errorMessage")
-        ).firstOrNull { it.isNotBlank() }.orEmpty()
+            jsonObject.opt("resultDesc")?.toString(),
+            jsonObject.opt("memo")?.toString(),
+            jsonObject.opt("desc")?.toString(),
+            jsonObject.opt("errorMsg")?.toString(),
+            jsonObject.opt("errorMessage")?.toString()
+        ).filter { !it.isNullOrBlank() }
+            .joinToString(" | ")
+        val authLikeKeywords = listOf(
+            "需要验证",
+            "伺服器繁忙",
+            "服务器繁忙",
+            "請稍後再試",
+            "请稍后再试",
+            "稍后重试",
+            "稍候再试",
+            "操作太频繁",
+            "过于频繁",
+            "系统繁忙",
+            "活动太火爆",
+            "訪問異常",
+            "访问异常"
+        )
         if (
             code == "1009" ||
-            desc.contains("需要验证") ||
-            desc.contains("伺服器繁忙") ||
-            desc.contains("服务器繁忙")
+            authLikeKeywords.any { keyword -> desc.contains(keyword, ignoreCase = true) }
         ) {
             return "AUTH_LIKE"
         }

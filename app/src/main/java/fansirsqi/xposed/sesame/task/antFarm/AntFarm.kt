@@ -3885,11 +3885,12 @@ class AntFarm : ModelTask() {
                 val animals = subFarmVO.getJSONArray("animals")
                 var candidate: JSONObject? = null
                 var fallbackCandidate: JSONObject? = null
+                var sawWorkAnimal = false
                 for (i in 0 until animals.length()) {
                     val animal = animals.getJSONObject(i)
                     if (animal.optString("subAnimalType") == "WORK") {
-                        Log.record(UserMap.getMaskName(userId) + "的小鸡已被雇佣")
-                        return false
+                        sawWorkAnimal = true
+                        continue
                     }
                     val animalStatusVo = animal.optJSONObject("animalStatusVO") ?: continue
                     if (AnimalInteractStatus.HOME.name != animalStatusVo.optString("animalInteractStatus")) {
@@ -3907,7 +3908,11 @@ class AntFarm : ModelTask() {
 
                 val animal = candidate ?: fallbackCandidate
                 if (animal == null) {
-                    Log.record(UserMap.getMaskName(userId) + "的小鸡不在家")
+                    if (sawWorkAnimal) {
+                        Log.record(UserMap.getMaskName(userId) + "的小鸡可雇佣数量不足，已跳过外出工作的小鸡")
+                    } else {
+                        Log.record(UserMap.getMaskName(userId) + "的小鸡不在家")
+                    }
                     return false
                 }
 
