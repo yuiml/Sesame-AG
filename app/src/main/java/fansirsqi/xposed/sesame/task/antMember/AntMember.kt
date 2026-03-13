@@ -41,7 +41,6 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.text.SimpleDateFormat
-import java.util.ArrayDeque
 import java.util.Date
 import java.util.Locale
 import java.util.Objects
@@ -98,66 +97,6 @@ class AntMember : ModelTask() {
     private var sesameGrainExchange: BooleanModelField? = null
     private var sesameGrainExchangeList: SelectModelField? = null
 
-    private enum class MemberTaskExecutionMethod {
-        UNSUPPORTED,
-        MEMTASK_EXECUTE,
-        ADTASK_FINISH
-    }
-
-    private data class MemberTaskExecution(
-        val taskConfigId: String,
-        val taskProcessId: String,
-        val title: String,
-        val awardPoint: String,
-        val bizType: String,
-        val bizSubType: String,
-        val bizParam: String,
-        val waitMillis: Long,
-        val executionMethod: MemberTaskExecutionMethod,
-        val targetBusiness: String,
-        val maxExecutionsPerRound: Int,
-        val finishBizId: String = ""
-    )
-
-    private data class MemberTaskProcessOutcome(
-        val result: MemberTaskProcessResult,
-        val maxExecutionsPerRound: Int = 1
-    )
-
-    private data class MemberTaskConfigQueryResult(
-        val taskConfigIdList: List<String>,
-        val shouldStopToday: Boolean = false,
-        val stopReason: String = "",
-        val riskLike: Boolean = false,
-        val hasAnyTaskCandidate: Boolean = false
-    )
-
-    private data class MemberFloatingBallTask(
-        val bizNo: String,
-        val taskType: String,
-        val awardNum: Int,
-        val waitMillis: Long,
-        val taskStatus: String
-    )
-
-    private enum class MemberTaskProcessResult {
-        COMPLETED,
-        SKIPPED_BLACKLIST,
-        SKIPPED_UNSUPPORTED,
-        FAILED
-    }
-
-    private data class MemberMotivatedStageAward(
-        val taskProcessId: String,
-        val awardRelatedOutBizNo: String,
-        val title: String,
-        val stageIndex: Int,
-        val awardPoint: String
-    )
-
-    private val memberTaskTotalAttemptLimit = 24
-    private val memberTaskRefreshRoundLimit = 3
-    private val memberRepeatableTaskMaxPerRound = 10
     private val sesameTaskRefreshRoundLimit = 8
 
     private data class SesameFeedbackItem(
@@ -299,10 +238,7 @@ class AntMember : ModelTask() {
                 var needSesameProgressCollectAfterTasks = false
 
                 if (memberSign?.value == true) {
-                    val memberSignDone = hasFlagToday(StatusFlags.FLAG_ANTMEMBER_MEMBER_SIGN_DONE)
-                    val memberFloatingBallDone =
-                        hasFlagToday(StatusFlags.FLAG_ANTMEMBER_MEMBER_FLOATING_BALL_DONE)
-                    if (memberSignDone && memberFloatingBallDone) {
+                    if (hasFlagToday(StatusFlags.FLAG_ANTMEMBER_MEMBER_SIGN_DONE)) {
                         record(TAG, "⏭️ 今天已处理过会员签到，跳过执行")
                     } else {
                         needMemberPointClaimAfterTasks = true
@@ -475,17 +411,6 @@ class AntMember : ModelTask() {
                     if (ApplicationHookConstants.isOffline()) {
                         record(TAG, "⏭️ 当前处于离线模式，跳过统一领取会员积分")
                     } else {
-                        if (
-                            memberSign?.value == true &&
-                            !hasFlagToday(StatusFlags.FLAG_ANTMEMBER_MEMBER_FLOATING_BALL_DONE)
-                        ) {
-                            record(TAG, "🎁 会员积分领取前补查浮球宝箱")
-                            if (processMemberFloatingBall()) {
-                                setFlagToday(StatusFlags.FLAG_ANTMEMBER_MEMBER_FLOATING_BALL_DONE)
-                            } else {
-                                record(TAG, "会员签到🎁[浮球宝箱补查未完成]")
-                            }
-                        }
                         record(TAG, "🎯 会员流程执行完成，开始统一领取会员积分")
                         queryPointCert(1, 20)
                     }
@@ -1208,7 +1133,6 @@ class AntMember : ModelTask() {
      */
     private suspend fun doMemberSign(): Unit = CoroutineUtils.run {
         var signDoneToday = hasFlagToday(StatusFlags.FLAG_ANTMEMBER_MEMBER_SIGN_DONE)
-        var floatingBallDoneToday = hasFlagToday(StatusFlags.FLAG_ANTMEMBER_MEMBER_FLOATING_BALL_DONE)
         try {
             val uid = UserMap.currentUid
             if (!signDoneToday) {
@@ -1241,17 +1165,11 @@ class AntMember : ModelTask() {
                     }
                 }
             }
-            if (!floatingBallDoneToday) {
-                floatingBallDoneToday = processMemberFloatingBall()
-            }
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "doMemberSign err:", t)
         } finally {
             if (signDoneToday) {
                 setFlagToday(StatusFlags.FLAG_ANTMEMBER_MEMBER_SIGN_DONE)
-            }
-            if (floatingBallDoneToday) {
-                setFlagToday(StatusFlags.FLAG_ANTMEMBER_MEMBER_FLOATING_BALL_DONE)
             }
         }
     }
@@ -1262,367 +1180,65 @@ class AntMember : ModelTask() {
      */
     private suspend fun doAllMemberAvailableTask(): Unit = CoroutineUtils.run {
         try {
-            var processedCount = 0
-            var skippedBlacklistCount = 0
-            var skippedUnsupportedCount = 0
-            var failedCount = 0
-            var totalAttemptCount = 0
-            var refreshRound = 0
-            var sawCurrentTaskCandidate = false
-            val attemptedTaskConfigCountMap = LinkedHashMap<String, Int>()
-            val taskRepeatLimitMap = LinkedHashMap<String, Int>()
-            var stopRefreshToday = false
-            var stopRefreshReason = ""
-            var stopDueToRisk = false
-            var attemptedCurrentTask = false
-            while (
-                totalAttemptCount < memberTaskTotalAttemptLimit &&
-                refreshRound < memberTaskRefreshRoundLimit
-            ) {
-                refreshRound++
-                val queryResult = queryCurrentMemberTaskConfigIds()
-                sawCurrentTaskCandidate = sawCurrentTaskCandidate || queryResult.hasAnyTaskCandidate
-                if (queryResult.shouldStopToday) {
-                    stopRefreshToday = true
-                    stopRefreshReason = queryResult.stopReason
-                    stopDueToRisk = queryResult.riskLike
-                    break
-                }
-                val roundQueue = ArrayDeque(
-                    queryResult.taskConfigIdList.filter { taskId ->
-                        attemptedTaskConfigCountMap.getOrDefault(taskId, 0) <
-                            taskRepeatLimitMap.getOrDefault(taskId, 1)
-                    }
+            val legacyTaskResponse = AntMemberRpcCall.queryLegacyAllStatusTaskList()
+            delay(500)
+            val legacyTaskObject = JSONObject(legacyTaskResponse)
+            val stopReason = resolveMemberTaskQueryStopReason(legacyTaskObject)
+            if (stopReason != null) {
+                setFlagToday(StatusFlags.FLAG_ANTMEMBER_MEMBER_TASK_RISK_STOP_TODAY)
+                record(
+                    TAG,
+                    "会员任务🎖️[legacy]#${buildMemberTaskQueryStopMessage(stopReason, legacyTaskObject)}"
                 )
-                if (roundQueue.isEmpty()) {
-                    stopRefreshToday = true
-                    stopRefreshReason = if (queryResult.taskConfigIdList.isEmpty()) {
-                        when {
-                            queryResult.hasAnyTaskCandidate && processedCount > 0 ->
-                                "NO_EXPLICIT_RPC_TASK_REMAIN"
-
-                            queryResult.hasAnyTaskCandidate -> "NO_EXPLICIT_RPC_TASK"
-                            processedCount > 0 -> "LIST_EMPTY_AFTER_PROCESS"
-                            else -> "LIST_EMPTY"
-                        }
-                    } else if (processedCount > 0) {
-                        "ONLY_BLACKLIST_OR_UNSUPPORTED_REMAIN"
-                    } else {
-                        "ONLY_BLACKLIST_OR_UNSUPPORTED"
-                    }
-                    break
-                }
-                attemptedCurrentTask = true
-                var roundProcessedCount = 0
-                while (roundQueue.isNotEmpty() && totalAttemptCount < memberTaskTotalAttemptLimit) {
-                    val taskConfigId = roundQueue.removeFirst()
-                    totalAttemptCount++
-                    val outcome = processCurrentMemberTask(taskConfigId)
-                    val attemptedCount = attemptedTaskConfigCountMap.getOrDefault(taskConfigId, 0) + 1
-                    attemptedTaskConfigCountMap[taskConfigId] = attemptedCount
-                    val maxExecutions = max(
-                        taskRepeatLimitMap.getOrDefault(taskConfigId, 1),
-                        outcome.maxExecutionsPerRound
-                    )
-                    taskRepeatLimitMap[taskConfigId] = maxExecutions
-                    when (outcome.result) {
-                        MemberTaskProcessResult.COMPLETED -> {
-                            processedCount++
-                            roundProcessedCount++
-                        }
-
-                        MemberTaskProcessResult.SKIPPED_BLACKLIST -> skippedBlacklistCount++
-                        MemberTaskProcessResult.SKIPPED_UNSUPPORTED -> skippedUnsupportedCount++
-                        MemberTaskProcessResult.FAILED -> failedCount++
-                    }
-                    if (
-                        outcome.result == MemberTaskProcessResult.COMPLETED &&
-                        attemptedCount < maxExecutions &&
-                        !roundQueue.contains(taskConfigId)
-                    ) {
-                        roundQueue.addLast(taskConfigId)
-                    }
-                    if (ApplicationHookConstants.isOffline()) {
-                        stopRefreshToday = true
-                        stopRefreshReason = "OFFLINE_MODE"
-                        stopDueToRisk = true
-                        break
-                    }
-                }
-                if (stopDueToRisk) {
-                    break
-                }
-                if (roundProcessedCount == 0) {
-                    stopRefreshToday = true
-                    stopRefreshReason = if (processedCount > 0) {
-                        "ONLY_BLACKLIST_OR_UNSUPPORTED_REMAIN"
-                    } else {
-                        "ONLY_BLACKLIST_OR_UNSUPPORTED"
-                    }
-                    break
-                }
-                delay(600)
+                return@run
+            }
+            if (!ResChecker.checkRes(TAG, legacyTaskObject)) {
+                Log.error(
+                    "$TAG.doAllMemberAvailableTask",
+                    "会员任务响应失败: " + legacyTaskObject.optString("resultDesc")
+                )
+                return@run
+            }
+            val taskList = legacyTaskObject.optJSONArray("availableTaskList") ?: JSONArray()
+            if (taskList.length() <= 0) {
+                setFlagToday(StatusFlags.FLAG_ANTMEMBER_MEMBER_TASK_EMPTY_TODAY)
+                record(TAG, "会员任务🎖️[legacy]#任务列表数量为0，今日停止继续刷新")
+                return@run
             }
 
-            if (
-                refreshRound >= memberTaskRefreshRoundLimit &&
-                !stopRefreshToday &&
-                totalAttemptCount < memberTaskTotalAttemptLimit
-            ) {
-                record(TAG, "会员任务🎖️[达到最大刷新轮次]#$memberTaskRefreshRoundLimit，停止继续刷新")
-            }
-
-            if (
-                !stopDueToRisk &&
-                processedCount == 0 &&
-                !attemptedCurrentTask &&
-                !sawCurrentTaskCandidate
-            ) {
-                val legacyTaskResponse = AntMemberRpcCall.queryLegacyAllStatusTaskList()
-                delay(500)
-                val legacyTaskObject = JSONObject(legacyTaskResponse)
-                if (!ResChecker.checkRes(TAG, legacyTaskObject)) {
-                    Log.error(
-                        "$TAG.doAllMemberAvailableTask", "会员任务响应失败: " + legacyTaskObject.optString("resultDesc")
-                    )
+            var processedCount = 0
+            var safeCandidateCount = 0
+            for (i in 0 until taskList.length()) {
+                val task = taskList.optJSONObject(i) ?: continue
+                val taskConfigInfo = task.optJSONObject("taskConfigInfo")
+                val taskId = taskConfigInfo?.optLong("id", 0L)?.takeIf { it > 0 }?.toString().orEmpty()
+                if (taskConfigInfo != null && shouldKeepMemberTaskConfigId(taskId)) {
+                    safeCandidateCount++
+                }
+                if (processLegacyMemberTask(task)) {
+                    processedCount++
+                }
+                if (ApplicationHookConstants.isOffline()) {
+                    setFlagToday(StatusFlags.FLAG_ANTMEMBER_MEMBER_TASK_RISK_STOP_TODAY)
+                    record(TAG, "会员任务🎖️[legacy]#检测到离线模式，今日停止继续刷新")
                     return@run
                 }
-                val taskList = legacyTaskObject.optJSONArray("availableTaskList") ?: JSONArray()
-                for (j in 0 until taskList.length()) {
-                    val task = taskList.getJSONObject(j)
-                    if (processLegacyMemberTask(task)) {
-                        processedCount++
-                    }
-                }
-            }
-
-            if (!stopDueToRisk) {
-                claimMotivatedMemberTaskAwards()
             }
 
             if (processedCount == 0) {
-                record(TAG, "会员任务🎖️[暂无待处理任务]")
+                setFlagToday(StatusFlags.FLAG_ANTMEMBER_MEMBER_TASK_EMPTY_TODAY)
+                record(
+                    TAG,
+                    if (safeCandidateCount > 0) {
+                        "会员任务🎖️[legacy]#当前列表无可安全执行任务，今日停止继续刷新"
+                    } else {
+                        "会员任务🎖️[legacy]#列表仅含不兼容任务，今日停止继续刷新"
+                    }
+                )
             }
-            if (stopRefreshToday) {
-                val stopMessage = when (stopRefreshReason) {
-                    "LIST_EMPTY_AFTER_PROCESS" -> "会员任务🎖️[当前轮列表已清空，今日停止继续刷新]"
-                    "LIST_EMPTY" -> "会员任务🎖️[任务列表数量为0，今日停止继续刷新]"
-                    "NO_EXPLICIT_RPC_TASK_REMAIN" -> "会员任务🎖️[剩余任务缺少已验证的通用RPC闭环，今日停止继续刷新]"
-                    "NO_EXPLICIT_RPC_TASK" -> "会员任务🎖️[当前任务缺少已验证的通用RPC闭环，今日停止继续刷新]"
-                    "ONLY_BLACKLIST_OR_UNSUPPORTED_REMAIN" -> "会员任务🎖️[剩余任务均为黑名单或暂不支持任务，今日停止继续刷新]"
-                    "ONLY_BLACKLIST_OR_UNSUPPORTED" -> "会员任务🎖️[列表仅含黑名单或暂不支持任务，今日停止继续刷新]"
-                    "AUTH_LIKE" -> "会员任务🎖️[检测到验证/服务器繁忙风控，今日停止继续刷新]"
-                    "OFFLINE_MODE" -> "会员任务🎖️[检测到离线模式，今日停止继续刷新]"
-                    else -> "会员任务🎖️[今日停止继续刷新]"
-                }
-                if (stopDueToRisk) {
-                    setFlagToday(StatusFlags.FLAG_ANTMEMBER_MEMBER_TASK_RISK_STOP_TODAY)
-                } else {
-                    setFlagToday(StatusFlags.FLAG_ANTMEMBER_MEMBER_TASK_EMPTY_TODAY)
-                }
-                record(TAG, stopMessage)
-            }
-
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "doAllMemberAvailableTask err:", t)
         }
-    }
-
-    private suspend fun processMemberFloatingBall(): Boolean = CoroutineUtils.run {
-        try {
-            var signInAdQueryFailed = false
-            val signInAdTaskResp = AntMemberRpcCall.querySignInAdTaskList()
-            delay(500)
-            val signInAdTaskObject = JSONObject(signInAdTaskResp)
-            val signInAdTaskConfigIdList = if (
-                !ResChecker.checkRes(
-                    TAG + "会员签到浮球任务查询失败:",
-                    signInAdTaskObject
-                )
-            ) {
-                signInAdQueryFailed = true
-                Log.error(TAG, "会员签到浮球任务查询失败:$signInAdTaskResp")
-                record(TAG, "会员签到🎁[浮球前置任务查询失败，继续尝试查询宝箱状态]")
-                emptyList()
-            } else {
-                collectSignInAdTaskConfigIds(signInAdTaskObject)
-            }
-            if (signInAdTaskConfigIdList.isNotEmpty()) {
-                val batchApplyResponse =
-                    AntMemberRpcCall.batchApplyMemberTask(signInAdTaskConfigIdList, "adFeeds")
-                delay(500)
-                val batchApplyObject = JSONObject(batchApplyResponse)
-                if (!ResChecker.checkRes(TAG + "会员签到浮球任务领取失败:", batchApplyObject)) {
-                    Log.error(TAG, "会员签到浮球任务领取失败:$batchApplyResponse")
-                    return@run false
-                }
-            }
-
-            val queryFloatingBallResponse = AntMemberRpcCall.querySignFloatingBall()
-            delay(500)
-            val queryFloatingBallObject = JSONObject(queryFloatingBallResponse)
-            if (!ResChecker.checkRes(TAG + "会员签到浮球查询失败:", queryFloatingBallObject)) {
-                Log.error(TAG, "会员签到浮球查询失败:$queryFloatingBallResponse")
-                return@run false
-            }
-            val floatingBallTask = buildMemberFloatingBallTask(queryFloatingBallObject)
-            if (floatingBallTask == null) {
-                if (signInAdQueryFailed) {
-                    record(TAG, "会员签到🎁[浮球状态可查但前置任务查询失败，稍后重试]")
-                    return@run false
-                }
-                if (signInAdTaskConfigIdList.isEmpty()) {
-                    record(TAG, "会员签到🎁[今日无浮球宝箱奖励]")
-                    return@run true
-                }
-                record(TAG, "会员签到🎁[已领取浮球任务但未返回宝箱信息]")
-                return@run false
-            }
-            if (floatingBallTask.taskStatus.equals("SUCCESS", true)) {
-                Log.other("会员签到🎁[开宝箱奖励]#${floatingBallTask.awardNum}积分")
-                return@run true
-            }
-
-            delay(floatingBallTask.waitMillis)
-            val triggerResponse = AntMemberRpcCall.triggerSignFloatingBall(
-                floatingBallTask.bizNo,
-                floatingBallTask.taskType
-            )
-            delay(500)
-            val triggerObject = JSONObject(triggerResponse)
-            if (!ResChecker.checkRes(TAG + "会员签到开宝箱失败:", triggerObject)) {
-                Log.error(TAG, "会员签到开宝箱失败:$triggerResponse")
-                return@run false
-            }
-            val currentTaskInfo = triggerObject.optJSONObject("currentTaskInfo")
-            val awardNum = currentTaskInfo?.optInt("awardNum", floatingBallTask.awardNum)
-                ?: floatingBallTask.awardNum
-            Log.other("会员签到🎁[开宝箱奖励]#${awardNum}积分")
-
-            val adTaskResponse = AntMemberRpcCall.querySignFloatingBallAdTask(floatingBallTask.bizNo)
-            delay(500)
-            val adTaskObject = JSONObject(adTaskResponse)
-            if (ResChecker.checkRes(TAG, adTaskObject)) {
-                val videoTaskInfo = adTaskObject.optJSONObject("videoTaskInfo")
-                if (videoTaskInfo != null && videoTaskInfo.optString("taskStatus")
-                        .equals("PROCESSING", true)
-                ) {
-                    val videoAwardNum = videoTaskInfo.optInt("awardNum", 0)
-                    record(
-                        TAG,
-                        "会员签到🎁[视频加码奖励待完成]#${videoAwardNum}积分"
-                    )
-                }
-            }
-            true
-        } catch (t: Throwable) {
-            Log.printStackTrace(TAG, "processMemberFloatingBall err:", t)
-            false
-        }
-    }
-
-    private suspend fun queryCurrentMemberTaskConfigIds(): MemberTaskConfigQueryResult {
-        val taskConfigIdSet = LinkedHashSet<String>()
-        var hasAnyTaskCandidate = false
-        val primaryResponse = AntMemberRpcCall.queryMemberTaskList()
-        hasAnyTaskCandidate = hasAnyTaskCandidate || responseContainsMemberTaskCandidate(primaryResponse)
-        val primaryStopResult = collectTaskConfigIdsFromResponse(
-            sourceTag = "queryMemberTaskList",
-            response = primaryResponse,
-            taskConfigIdSet = taskConfigIdSet
-        )
-        if (primaryStopResult != null) {
-            return primaryStopResult.copy(hasAnyTaskCandidate = hasAnyTaskCandidate)
-        }
-        if (taskConfigIdSet.isEmpty()) {
-            delay(400)
-            val signPageResponse = AntMemberRpcCall.signPageTaskList()
-            hasAnyTaskCandidate = hasAnyTaskCandidate || responseContainsMemberTaskCandidate(signPageResponse)
-            val signPageStopResult = collectTaskConfigIdsFromResponse(
-                sourceTag = "signPageTaskList",
-                response = signPageResponse,
-                taskConfigIdSet = taskConfigIdSet
-            )
-            if (signPageStopResult != null) {
-                return signPageStopResult.copy(hasAnyTaskCandidate = hasAnyTaskCandidate)
-            }
-        }
-        if (taskConfigIdSet.isEmpty()) {
-            delay(400)
-            val deliveryResponse = AntMemberRpcCall.queryPointSignInPageDelivery()
-            hasAnyTaskCandidate = hasAnyTaskCandidate || responseContainsMemberTaskCandidate(deliveryResponse)
-            val deliveryStopResult = collectTaskConfigIdsFromResponse(
-                sourceTag = "pointSignInDelivery",
-                response = deliveryResponse,
-                taskConfigIdSet = taskConfigIdSet
-            )
-            if (deliveryStopResult != null) {
-                return deliveryStopResult.copy(hasAnyTaskCandidate = hasAnyTaskCandidate)
-            }
-        }
-        return MemberTaskConfigQueryResult(
-            taskConfigIdSet.toList(),
-            hasAnyTaskCandidate = hasAnyTaskCandidate
-        )
-    }
-
-    private fun collectTaskConfigIdsFromResponse(
-        sourceTag: String,
-        response: String,
-        taskConfigIdSet: MutableSet<String>
-    ): MemberTaskConfigQueryResult? {
-        if (ApplicationHookConstants.isOffline()) {
-            return MemberTaskConfigQueryResult(
-                emptyList(),
-                shouldStopToday = true,
-                stopReason = "OFFLINE_MODE",
-                riskLike = true
-            )
-        }
-        if (response.isBlank()) {
-            return if (ApplicationHookConstants.isOffline()) {
-                MemberTaskConfigQueryResult(
-                    emptyList(),
-                    shouldStopToday = true,
-                    stopReason = "OFFLINE_MODE",
-                    riskLike = true
-                )
-            } else {
-                null
-            }
-        }
-        try {
-            val jsonObject = JSONObject(response)
-            val stopReason = resolveMemberTaskQueryStopReason(jsonObject)
-            if (stopReason != null) {
-                record(
-                    TAG,
-                    "会员任务🎖️[$sourceTag]#${buildMemberTaskQueryStopMessage(stopReason, jsonObject)}"
-                )
-                return MemberTaskConfigQueryResult(
-                    emptyList(),
-                    shouldStopToday = true,
-                    stopReason = stopReason,
-                    riskLike = true
-                )
-            }
-            val resultCode = jsonObject.optString("resultCode")
-            val looksSuccessful = jsonObject.optBoolean("success", false)
-                || jsonObject.optBoolean("isSuccess", false)
-                || resultCode.equals("SUCCESS", true)
-                || resultCode == "100"
-                || resultCode == "200"
-                || jsonObject.optBoolean("show", false)
-            if (!looksSuccessful) {
-                return null
-            }
-            collectMemberTaskConfigIds(jsonObject, taskConfigIdSet)
-        } catch (_: JSONException) {
-            record(TAG, "会员任务🎖️[$sourceTag]#响应结构无法安全解析，跳过本轮自动收集")
-        } catch (t: Throwable) {
-            Log.printStackTrace(TAG, "collectTaskConfigIdsFromResponse[$sourceTag] err:", t)
-        }
-        return null
     }
 
     private fun resolveMemberTaskQueryStopReason(jsonObject: JSONObject): String? {
@@ -1685,47 +1301,6 @@ class AntMember : ModelTask() {
             "OFFLINE_MODE" -> "检测到离线模式($detail)，停止今日继续刷新"
             else -> "检测到异常($detail)，停止今日继续刷新"
         }
-    }
-
-    private fun collectSignInAdTaskConfigIds(jsonObject: JSONObject): List<String> {
-        val taskConfigIdList = LinkedHashSet<String>()
-        val resultData = jsonObject.optJSONObject("resultData") ?: return taskConfigIdList.toList()
-        val taskProcessVOList = resultData.optJSONArray("taskProcessVOList") ?: return taskConfigIdList.toList()
-        for (i in 0 until taskProcessVOList.length()) {
-            val taskObject = taskProcessVOList.optJSONObject(i) ?: continue
-            if (isMemberTaskProcessFinished(taskObject)) {
-                continue
-            }
-            val taskConfigId = resolveMemberTaskConfigId(taskObject)
-            if (!taskConfigId.isNullOrEmpty()) {
-                taskConfigIdList.add(taskConfigId)
-            }
-        }
-        return taskConfigIdList.toList()
-    }
-
-    private fun buildMemberFloatingBallTask(jsonObject: JSONObject): MemberFloatingBallTask? {
-        val currentTaskInfo = jsonObject.optJSONObject("currentTaskInfo") ?: return null
-        val bizNo = currentTaskInfo.optString("bizNo")
-        if (bizNo.isEmpty()) {
-            return null
-        }
-        val taskType = jsonObject.optString("taskType").ifEmpty { "MULTIPLE_TIMER_TASK" }
-        val awardNum = currentTaskInfo.optInt("awardNum", 0)
-        val taskStatus = currentTaskInfo.optString("taskStatus")
-        val endDt = currentTaskInfo.optLong("endDt", 0L)
-        val waitMillis = if (taskStatus.equals("PROCESSING", true) && endDt > 0L) {
-            max(1200L, endDt - System.currentTimeMillis() + 600L)
-        } else {
-            1200L
-        }
-        return MemberFloatingBallTask(
-            bizNo = bizNo,
-            taskType = taskType,
-            awardNum = awardNum,
-            waitMillis = waitMillis,
-            taskStatus = taskStatus
-        )
     }
 
     /**
@@ -2134,6 +1709,10 @@ class AntMember : ModelTask() {
         val name = taskConfigInfo.getString("name")
         val id = taskConfigInfo.getLong("id")
         val awardParamPoint = taskConfigInfo.getJSONObject("awardParam").getString("awardParamPoint")
+        if (isMemberTaskInBlacklist(id.toString(), name)) {
+            record(TAG, "会员任务🎖️[$name]#黑名单任务，停止执行")
+            return@run false
+        }
         val targetBusiness = resolveSupportedMemberTaskTargetBusiness(
             taskConfigInfo.optJSONArray("targetBusiness"),
             taskConfigInfo
@@ -2157,51 +1736,6 @@ class AntMember : ModelTask() {
             return@run true
         }
         false
-    }
-
-    /**
-     * 查询指定会员任务是否完成
-     * @param taskId 任务id
-     */
-    private suspend fun checkMemberTaskFinished(taskId: String, taskProcessId: String = ""): Boolean {
-        return try {
-            if (taskProcessId.isNotEmpty()) {
-                val detailResponse = AntMemberRpcCall.querySingleTaskProcessDetail(taskProcessId)
-                delay(500)
-                val detailObject = JSONObject(detailResponse)
-                if (ResChecker.checkRes(TAG + "查询会员任务详情失败:", detailObject)) {
-                    val taskProcessObject = detailObject.optJSONObject("resultData")
-                        ?.optJSONObject("taskProcessVO")
-                        ?: detailObject.optJSONObject("taskProcessVO")
-                    if (isMemberTaskProcessFinished(taskProcessObject)) {
-                        return true
-                    }
-                } else {
-                    Log.error(
-                        "$TAG.checkMemberTaskFinished",
-                        "会员任务详情响应失败: " + detailObject.optString("resultDesc")
-                    )
-                }
-                return false
-            }
-            val str = AntMemberRpcCall.queryMemberTaskList()
-            delay(500)
-            val jsonObject = JSONObject(str)
-            if (!ResChecker.checkRes(TAG + "查询会员任务状态失败:", jsonObject)) {
-                Log.error(
-                    "$TAG.checkMemberTaskFinished", "新版会员任务响应失败: " + jsonObject.optString("resultDesc")
-                )
-                val legacyTaskId = taskId.toLongOrNull()
-                if (legacyTaskId != null) {
-                    return checkMemberTaskFinished(legacyTaskId)
-                }
-                return false
-            }
-            val taskConfigIds = collectMemberTaskConfigIds(jsonObject)
-            taskConfigIds.isNotEmpty() && !taskConfigIds.contains(taskId)
-        } catch (_: JSONException) {
-            false
-        }
     }
 
     private suspend fun checkMemberTaskFinished(taskId: Long): Boolean {
@@ -2229,222 +1763,6 @@ class AntMember : ModelTask() {
         } catch (_: JSONException) {
             false
         }
-    }
-
-    private suspend fun processCurrentMemberTask(taskConfigId: String): MemberTaskProcessOutcome = CoroutineUtils.run {
-        try {
-            val applyResponse = AntMemberRpcCall.applyMemberTask(taskConfigId)
-            delay(500)
-            val applyObject = JSONObject(applyResponse)
-            if (isSkippableMemberTaskRejection(applyObject)) {
-                record(TAG, "会员任务🎖️[taskConfigId=$taskConfigId]#不满足营销规则，跳过执行")
-                return@run MemberTaskProcessOutcome(MemberTaskProcessResult.SKIPPED_UNSUPPORTED)
-            }
-            if (!ResChecker.checkRes(TAG + "领取会员任务失败:", applyObject)) {
-                Log.error(TAG, "领取会员任务失败:$applyResponse")
-                return@run MemberTaskProcessOutcome(MemberTaskProcessResult.FAILED)
-            }
-            val taskExecution = buildCurrentMemberTaskExecution(taskConfigId, applyObject)
-                ?: return@run MemberTaskProcessOutcome(MemberTaskProcessResult.SKIPPED_UNSUPPORTED)
-            if (isMemberTaskInBlacklist(taskExecution.taskConfigId, taskExecution.title)) {
-                record(TAG, "会员任务🎖️[${taskExecution.title}]#黑名单任务，停止执行")
-                return@run MemberTaskProcessOutcome(MemberTaskProcessResult.SKIPPED_BLACKLIST)
-            }
-            when (taskExecution.executionMethod) {
-                MemberTaskExecutionMethod.UNSUPPORTED -> {
-                    delay(taskExecution.waitMillis)
-                    if (checkMemberTaskFinished(taskExecution.taskConfigId, taskExecution.taskProcessId)) {
-                        Log.other("会员任务🎖️[${taskExecution.title}]#获得积分${taskExecution.awardPoint}")
-                        return@run MemberTaskProcessOutcome(
-                            MemberTaskProcessResult.COMPLETED,
-                            taskExecution.maxExecutionsPerRound
-                        )
-                    }
-                    record(
-                        TAG,
-                        "会员任务🎖️[${taskExecution.title}]#未命中已验证的通用RPC闭环，跳过执行(targetBusiness=${taskExecution.targetBusiness})"
-                    )
-                    return@run MemberTaskProcessOutcome(MemberTaskProcessResult.SKIPPED_UNSUPPORTED)
-                }
-
-                MemberTaskExecutionMethod.ADTASK_FINISH -> {
-                    delay(taskExecution.waitMillis)
-                    val finishResponse = AntMemberRpcCall.taskFinish(taskExecution.finishBizId)
-                    val finishObject = JSONObject(finishResponse)
-                    val finishOk = ResChecker.checkRes(TAG + "执行会员任务失败:", finishObject)
-                        || finishObject.optString("resultCode").equals("SUCCESS", true)
-                        || "0" == finishObject.optString("errCode")
-                    if (!finishOk) {
-                        Log.error(TAG, "执行会员任务失败:$finishResponse")
-                        val errorCode = finishObject.optString("resultCode").ifEmpty {
-                            finishObject.optString("errorCode").ifEmpty {
-                                finishObject.optString("errCode")
-                            }
-                        }
-                        if (errorCode.isNotEmpty()) {
-                            autoAddToBlacklist(taskExecution.taskConfigId, taskExecution.title, errorCode)
-                        }
-                        return@run MemberTaskProcessOutcome(MemberTaskProcessResult.FAILED)
-                    }
-                    if (checkMemberTaskFinished(taskExecution.taskConfigId, taskExecution.taskProcessId)) {
-                        Log.other("会员任务🎖️[${taskExecution.title}]#获得积分${taskExecution.awardPoint}")
-                        return@run MemberTaskProcessOutcome(
-                            MemberTaskProcessResult.COMPLETED,
-                            taskExecution.maxExecutionsPerRound
-                        )
-                    }
-                    record(TAG, "会员任务🎖️[${taskExecution.title}]#状态未刷新，等待下轮检查")
-                }
-
-                MemberTaskExecutionMethod.MEMTASK_EXECUTE -> {
-                    delay(taskExecution.waitMillis)
-                    val executeResponse = AntMemberRpcCall.executeMemberTask(
-                        taskExecution.bizParam,
-                        taskExecution.bizSubType,
-                        taskExecution.bizType
-                    )
-                    val executeObject = JSONObject(executeResponse)
-                    if (isSkippableMemberTaskRejection(executeObject)) {
-                        record(TAG, "会员任务🎖️[${taskExecution.title}]#不满足营销规则，跳过执行")
-                        return@run MemberTaskProcessOutcome(MemberTaskProcessResult.SKIPPED_UNSUPPORTED)
-                    }
-                    if (!ResChecker.checkRes(TAG + "执行会员任务失败:", executeObject)) {
-                        Log.error(TAG, "执行会员任务失败:$executeResponse")
-                        val errorCode = executeObject.optString("resultCode").ifEmpty {
-                            executeObject.optString("errorCode")
-                        }
-                        if (errorCode.isNotEmpty()) {
-                            autoAddToBlacklist(taskExecution.taskConfigId, taskExecution.title, errorCode)
-                        }
-                        return@run MemberTaskProcessOutcome(MemberTaskProcessResult.FAILED)
-                    }
-                    if (checkMemberTaskFinished(taskExecution.taskConfigId, taskExecution.taskProcessId)) {
-                        Log.other("会员任务🎖️[${taskExecution.title}]#获得积分${taskExecution.awardPoint}")
-                        return@run MemberTaskProcessOutcome(
-                            MemberTaskProcessResult.COMPLETED,
-                            taskExecution.maxExecutionsPerRound
-                        )
-                    }
-                    record(TAG, "会员任务🎖️[${taskExecution.title}]#状态未刷新，等待下轮检查")
-                }
-            }
-        } catch (t: Throwable) {
-            Log.printStackTrace(TAG, "processCurrentMemberTask err:", t)
-        }
-        MemberTaskProcessOutcome(MemberTaskProcessResult.FAILED)
-    }
-
-    private fun collectMemberTaskConfigIds(jsonObject: JSONObject): List<String> {
-        val taskConfigIdSet = LinkedHashSet<String>()
-        collectMemberTaskConfigIds(jsonObject as Any?, taskConfigIdSet)
-        return taskConfigIdSet.toList()
-    }
-
-    private fun collectMemberTaskConfigIds(payload: Any?, taskConfigIdSet: MutableSet<String>) {
-        when (payload) {
-            is JSONObject -> {
-                val taskConfigId = resolveMemberTaskConfigId(payload)
-                if (!taskConfigId.isNullOrEmpty() && shouldCollectMemberTask(payload, taskConfigId)) {
-                    taskConfigIdSet.add(taskConfigId)
-                }
-                val keys = payload.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    collectMemberTaskConfigIds(payload.opt(key), taskConfigIdSet)
-                }
-            }
-
-            is JSONArray -> {
-                for (i in 0 until payload.length()) {
-                    collectMemberTaskConfigIds(payload.opt(i), taskConfigIdSet)
-                }
-            }
-        }
-    }
-
-    private fun resolveMemberTaskConfigId(taskObject: JSONObject): String? {
-        val directValue = taskObject.optString("taskConfigId")
-        if (directValue.isNotEmpty()) {
-            return directValue
-        }
-        val taskConfigInfo = taskObject.optJSONObject("taskConfigInfo")
-        if (taskConfigInfo != null) {
-            val configId = taskConfigInfo.optString("taskConfigId")
-            if (configId.isNotEmpty()) {
-                return configId
-            }
-            val id = taskConfigInfo.optLong("id", 0L)
-            if (id > 0) {
-                return id.toString()
-            }
-        }
-        val simpleTaskConfig = taskObject.optJSONObject("simpleTaskConfig")
-            ?: taskObject.optJSONObject("taskProcessVO")?.optJSONObject("simpleTaskConfig")
-            ?: taskObject.optJSONObject("resultData")?.optJSONObject("taskProcessVO")?.optJSONObject("simpleTaskConfig")
-        if (simpleTaskConfig != null) {
-            val configId = simpleTaskConfig.optString("configId")
-            if (configId.isNotEmpty()) {
-                return configId
-            }
-            val taskConfigId = simpleTaskConfig.optString("taskConfigId")
-            if (taskConfigId.isNotEmpty()) {
-                return taskConfigId
-            }
-        }
-        val id = taskObject.optLong("id", 0L)
-        return if (id > 0) id.toString() else null
-    }
-
-    private fun responseContainsMemberTaskCandidate(response: String): Boolean {
-        if (response.isBlank()) {
-            return false
-        }
-        return try {
-            containsMemberTaskCandidate(JSONObject(response))
-        } catch (_: JSONException) {
-            false
-        }
-    }
-
-    private fun containsMemberTaskCandidate(payload: Any?): Boolean {
-        when (payload) {
-            is JSONObject -> {
-                val taskConfigId = resolveMemberTaskConfigId(payload)
-                if (!taskConfigId.isNullOrEmpty()) {
-                    val simpleTaskConfig = payload.optJSONObject("simpleTaskConfig")
-                        ?: payload.optJSONObject("taskConfig")
-                        ?: payload.optJSONObject("taskConfigInfo")
-                        ?: payload.optJSONObject("taskProcessVO")?.optJSONObject("simpleTaskConfig")
-                        ?: payload.optJSONObject("resultData")?.optJSONObject("taskProcessVO")
-                            ?.optJSONObject("simpleTaskConfig")
-                    val taskStyle = payload.optString("taskStyle").ifEmpty {
-                        simpleTaskConfig?.optString("taskStyle").orEmpty()
-                    }
-                    if (
-                        !"MOTIVATED_TASK".equals(taskStyle, true) &&
-                        !isMemberTaskProcessFinished(payload)
-                    ) {
-                        return true
-                    }
-                }
-                val keys = payload.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    if (containsMemberTaskCandidate(payload.opt(key))) {
-                        return true
-                    }
-                }
-            }
-
-            is JSONArray -> {
-                for (i in 0 until payload.length()) {
-                    if (containsMemberTaskCandidate(payload.opt(i))) {
-                        return true
-                    }
-                }
-            }
-        }
-        return false
     }
 
     private fun resolveSupportedMemberTaskTargetBusiness(
@@ -2491,29 +1809,6 @@ class AntMember : ModelTask() {
             .find()
     }
 
-    private fun shouldCollectMemberTask(taskObject: JSONObject, taskConfigId: String): Boolean {
-        if (!shouldKeepMemberTaskConfigId(taskConfigId)) {
-            return false
-        }
-        if (isMemberTaskProcessFinished(taskObject)) {
-            return false
-        }
-        val simpleTaskConfig = taskObject.optJSONObject("simpleTaskConfig")
-            ?: taskObject.optJSONObject("taskConfig")
-            ?: taskObject.optJSONObject("taskConfigInfo")
-        val taskStyle = taskObject.optString("taskStyle").ifEmpty {
-            simpleTaskConfig?.optString("taskStyle").orEmpty()
-        }
-        if ("MOTIVATED_TASK".equals(taskStyle, true)) {
-            return false
-        }
-        val targetBusiness = taskObject.optJSONArray("targetBusiness")
-            ?: taskObject.optJSONObject("taskProcessVO")?.optJSONArray("targetBusiness")
-            ?: simpleTaskConfig?.optJSONArray("targetBusiness")
-        return resolveSupportedMemberTaskTargetBusiness(targetBusiness, simpleTaskConfig)
-            .isNotEmpty()
-    }
-
     private fun shouldKeepMemberTaskConfigId(taskConfigId: String): Boolean {
         return taskConfigId.length >= 12 && taskConfigId.startsWith("6")
     }
@@ -2523,132 +1818,6 @@ class AntMember : ModelTask() {
         return TaskBlacklist.isTaskInBlacklist(combinedTaskInfo)
             || TaskBlacklist.isTaskInBlacklist(taskTitle)
             || TaskBlacklist.isTaskInBlacklist(taskConfigId)
-    }
-
-    private fun isSkippableMemberTaskRejection(response: JSONObject): Boolean {
-        val resultCode = response.optString("resultCode").ifEmpty {
-            response.optString("errorCode")
-        }
-        val resultDesc = response.optString("resultDesc").ifEmpty {
-            response.optString("errorMsg")
-        }
-        return resultCode == "NOT_PROMO_RULE_QUALIFIED"
-            || resultDesc.contains("不满足任务的营销规则条件")
-    }
-
-    private fun buildCurrentMemberTaskExecution(
-        taskConfigId: String,
-        applyObject: JSONObject
-    ): MemberTaskExecution? {
-        val taskProcess = applyObject.optJSONObject("resultData")?.optJSONObject("taskProcessVO")
-            ?: applyObject.optJSONObject("data")?.optJSONObject("taskProcessVO")
-            ?: applyObject.optJSONObject("taskProcessVO")
-        val simpleTaskConfig = taskProcess?.optJSONObject("simpleTaskConfig")
-            ?: applyObject.optJSONObject("taskConfigInfo")
-            ?: applyObject.optJSONObject("taskConfig")
-        if (simpleTaskConfig == null) {
-            Log.error(TAG, "会员任务[$taskConfigId]未返回simpleTaskConfig")
-            return null
-        }
-        val taskProcessId = taskProcess?.optString("processId").orEmpty()
-        val title = simpleTaskConfig.optString("title").ifEmpty {
-            simpleTaskConfig.optString("name").ifEmpty { "任务$taskConfigId" }
-        }
-        val awardPoint = extractMemberTaskAwardPoint(simpleTaskConfig)
-        val targetBusinessArray = taskProcess?.optJSONArray("targetBusiness")
-            ?: simpleTaskConfig.optJSONArray("targetBusiness")
-        val targetBusiness = resolveSupportedMemberTaskTargetBusiness(
-            targetBusinessArray,
-            simpleTaskConfig
-        )
-        if (targetBusiness.isEmpty()) {
-            return null
-        }
-        val targetParts = targetBusiness.split("#")
-        val bizType = targetParts[0]
-        val bizSubType = targetParts[1]
-        val bizParam = targetParts[2]
-        val maxExecutionsPerRound = calcMemberTaskMaxExecutionsPerRound(
-            simpleTaskConfig,
-            taskProcess,
-            targetBusiness,
-            bizSubType
-        )
-        return MemberTaskExecution(
-            taskConfigId = taskConfigId,
-            taskProcessId = taskProcessId,
-            title = title,
-            awardPoint = awardPoint,
-            bizType = bizType,
-            bizSubType = bizSubType,
-            bizParam = bizParam,
-            waitMillis = calcMemberTaskWaitMillis(simpleTaskConfig, bizSubType),
-            executionMethod = MemberTaskExecutionMethod.MEMTASK_EXECUTE,
-            targetBusiness = targetBusiness,
-            maxExecutionsPerRound = maxExecutionsPerRound
-        )
-    }
-
-    private fun isMemberTaskProcessFinished(taskProcessObject: JSONObject?): Boolean {
-        if (taskProcessObject == null) {
-            return false
-        }
-        val status = taskProcessObject.optString("status")
-        if (
-            status.equals("AWARDED", true)
-            || status.equals("SUCCESS", true)
-            || status.equals("COMPLETE", true)
-            || status.equals("DONE", true)
-            || status.equals("FINISHED", true)
-        ) {
-            return true
-        }
-        val subStatus = taskProcessObject.optString("subStatus")
-        if (
-            subStatus.equals("AWARDED", true)
-            || subStatus.equals("SUCCESS", true)
-            || subStatus.equals("COMPLETE", true)
-            || subStatus.equals("DONE", true)
-            || subStatus.equals("FINISHED", true)
-        ) {
-            return true
-        }
-        val currentCount = taskProcessObject.optLong("currentCount", -1L)
-        val targetCount = taskProcessObject.optLong("targetCount", -1L)
-        if (targetCount > 0 && currentCount >= targetCount) {
-            return true
-        }
-        val extInfo = taskProcessObject.optJSONObject("extInfo")
-        if (extInfo != null) {
-            if (extInfo.optString("awardCurrentPoint").isNotEmpty() || extInfo.optString("awardSuccessTime").isNotEmpty()) {
-                return true
-            }
-            val periodCurrentCount = extInfo.optString("PERIOD_CURRENT_COUNT").toLongOrNull() ?: -1L
-            val periodTargetCount = extInfo.optString("PERIOD_TARGET_COUNT").toLongOrNull() ?: -1L
-            val periodCurrentSubCount = extInfo.optString("PERIOD_CURRENT_SUB_COUNT").toLongOrNull() ?: -1L
-            val periodTargetSubCount = extInfo.optString("PERIOD_TARGET_SUB_COUNT").toLongOrNull() ?: -1L
-            if (
-                periodTargetSubCount > 0 && periodCurrentCount >= periodTargetSubCount
-                || periodTargetCount > 0 && periodCurrentCount >= periodTargetCount
-                || periodTargetSubCount > 0 && periodCurrentSubCount >= periodTargetSubCount
-            ) {
-                return true
-            }
-        }
-        return false
-    }
-
-    private fun extractMemberTaskAwardPoint(simpleTaskConfig: JSONObject): String {
-        val stageVOList = simpleTaskConfig.optJSONArray("stageVOList")
-        if (stageVOList != null && stageVOList.length() > 0) {
-            val stageObject = stageVOList.optJSONObject(0)
-            val awardParam = stageObject?.optJSONObject("awardParam")
-            val awardPoint = awardParam?.optString("awardParamPoint").orEmpty()
-            if (awardPoint.isNotEmpty()) {
-                return awardPoint
-            }
-        }
-        return simpleTaskConfig.optJSONObject("awardParam")?.optString("awardParamPoint").orEmpty()
     }
 
     private fun calcMemberTaskWaitMillis(simpleTaskConfig: JSONObject, bizSubType: String): Long {
@@ -2664,190 +1833,6 @@ class AntMember : ModelTask() {
             }
         }
         return if ("UNLIMITED".equals(bizSubType, true)) 1200L else 16000L
-    }
-
-    private fun calcMemberTaskMaxExecutionsPerRound(
-        simpleTaskConfig: JSONObject,
-        taskProcess: JSONObject?,
-        targetBusiness: String,
-        bizSubType: String
-    ): Int {
-        val title = simpleTaskConfig.optString("title")
-        val subtitle = simpleTaskConfig.optString("subtitle")
-        val desc = simpleTaskConfig.optString("desc").ifEmpty {
-            simpleTaskConfig.optString("description")
-        }
-        val mergedText = listOf(title, subtitle, desc, targetBusiness, bizSubType)
-            .filter { it.isNotBlank() }
-            .joinToString("|")
-        val browseLike = targetBusiness.startsWith("BROWSE#", true) ||
-            mergedText.contains("浏览") ||
-            mergedText.contains("逛")
-        val repeatHint = desc.contains("每完成1次任务") ||
-            desc.contains("每完成一次任务") ||
-            desc.contains("每次完成任务") ||
-            (taskProcess?.optString("countType")?.equals("TIMES", true) == true)
-        return if (browseLike && repeatHint) {
-            memberRepeatableTaskMaxPerRound
-        } else {
-            1
-        }
-    }
-
-    private suspend fun claimMotivatedMemberTaskAwards(): Unit = CoroutineUtils.run {
-        try {
-            val awardMap = LinkedHashMap<String, MemberMotivatedStageAward>()
-            val primaryResponse = AntMemberRpcCall.queryMemberTaskList()
-            if (appendMotivatedMemberTaskAwardsFromResponse("queryMemberTaskList", primaryResponse, awardMap)) {
-                return@run
-            }
-            if (awardMap.isEmpty()) {
-                delay(200)
-                val signPageResponse = AntMemberRpcCall.signPageTaskList()
-                if (appendMotivatedMemberTaskAwardsFromResponse("signPageTaskList", signPageResponse, awardMap)) {
-                    return@run
-                }
-            }
-            if (awardMap.isEmpty()) {
-                delay(200)
-                val deliveryResponse = AntMemberRpcCall.queryPointSignInPageDelivery()
-                if (appendMotivatedMemberTaskAwardsFromResponse("pointSignInDelivery", deliveryResponse, awardMap)) {
-                    return@run
-                }
-            }
-            if (awardMap.isEmpty()) {
-                return@run
-            }
-            awardMap.values.forEach { award ->
-                val awardResponse = JSONObject(
-                    AntMemberRpcCall.awardMemberTask(
-                        award.taskProcessId,
-                        award.awardRelatedOutBizNo
-                    )
-                )
-                delay(500)
-                if (ResChecker.checkRes(TAG + "领取会员达标奖励失败:", awardResponse)) {
-                    val pointText = if (award.awardPoint.isBlank()) "" else "${award.awardPoint}积分"
-                    Log.other("会员任务🎁[${award.title}]#领取第${award.stageIndex}档$pointText")
-                } else {
-                    record(
-                        TAG,
-                        "会员任务🎁[${award.title}]#第${award.stageIndex}档领取失败:${
-                            awardResponse.optString("resultDesc", awardResponse.toString())
-                        }"
-                    )
-                }
-            }
-        } catch (t: Throwable) {
-            Log.printStackTrace(TAG, "claimMotivatedMemberTaskAwards err:", t)
-        }
-    }
-
-    private fun appendMotivatedMemberTaskAwardsFromResponse(
-        sourceTag: String,
-        response: String,
-        awardMap: MutableMap<String, MemberMotivatedStageAward>
-    ): Boolean {
-        if (response.isBlank()) {
-            return ApplicationHookConstants.isOffline()
-        }
-        return try {
-            val jsonObject = JSONObject(response)
-            val stopReason = resolveMemberTaskQueryStopReason(jsonObject)
-            if (stopReason != null) {
-                record(
-                    TAG,
-                    "会员任务🎁[$sourceTag]#${buildMemberTaskQueryStopMessage(stopReason, jsonObject)}"
-                )
-                true
-            } else {
-                collectMotivatedMemberTaskAwards(jsonObject, awardMap)
-                false
-            }
-        } catch (_: JSONException) {
-            false
-        }
-    }
-
-    private fun collectMotivatedMemberTaskAwards(
-        payload: Any?,
-        awardMap: MutableMap<String, MemberMotivatedStageAward>
-    ) {
-        when (payload) {
-            is JSONObject -> {
-                collectMotivatedMemberTaskAwardsFromObject(payload, awardMap)
-                val keys = payload.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    collectMotivatedMemberTaskAwards(payload.opt(key), awardMap)
-                }
-            }
-
-            is JSONArray -> {
-                for (i in 0 until payload.length()) {
-                    collectMotivatedMemberTaskAwards(payload.opt(i), awardMap)
-                }
-            }
-        }
-    }
-
-    private fun collectMotivatedMemberTaskAwardsFromObject(
-        payload: JSONObject,
-        awardMap: MutableMap<String, MemberMotivatedStageAward>
-    ) {
-        val taskProcessObject = payload.optJSONObject("availableTaskProcess")
-            ?: payload.takeIf {
-                it.optString("taskProcessId").isNotEmpty() || it.optString("processId").isNotEmpty()
-            }
-            ?: return
-        val taskConfig = taskProcessObject.optJSONObject("taskConfig")
-            ?: taskProcessObject.optJSONObject("simpleTaskConfig")
-            ?: return
-        if (!taskConfig.optString("taskStyle").equals("MOTIVATED_TASK", true)) {
-            return
-        }
-        val taskProcessId = taskProcessObject.optString("taskProcessId").ifEmpty {
-            taskProcessObject.optString("processId")
-        }
-        if (taskProcessId.isBlank()) {
-            return
-        }
-        val currentCount = taskProcessObject.optLong("currentCount", -1L)
-        val title = taskConfig.optString("title").ifBlank {
-            taskConfig.optString("businessShowName").ifBlank { "会员任务达标奖励" }
-        }
-        val stageProcessList = taskProcessObject.optJSONArray("stageProcessList") ?: return
-        for (i in 0 until stageProcessList.length()) {
-            val stageProcess = stageProcessList.optJSONObject(i) ?: continue
-            val awardRelatedOutBizNo = stageProcess.optString("awardRelatedOutBizNo")
-            if (awardRelatedOutBizNo.isBlank()) {
-                continue
-            }
-            val stageStatus = stageProcess.optString("stageStatus").uppercase()
-            if (
-                stageStatus == "AWARDED" ||
-                stageStatus == "SUCCESS" ||
-                stageStatus == "RECEIVED" ||
-                stageStatus == "DONE"
-            ) {
-                continue
-            }
-            val stageTargetCount = stageProcess.optLong("stageTargetCount", -1L)
-            if (stageTargetCount > 0 && currentCount in 0 until stageTargetCount) {
-                continue
-            }
-            val key = "$taskProcessId#$awardRelatedOutBizNo"
-            if (awardMap.containsKey(key)) {
-                continue
-            }
-            awardMap[key] = MemberMotivatedStageAward(
-                taskProcessId = taskProcessId,
-                awardRelatedOutBizNo = awardRelatedOutBizNo,
-                title = title,
-                stageIndex = stageProcess.optInt("stageIndex", i + 1),
-                awardPoint = stageProcess.opt("awardPoint")?.toString().orEmpty()
-            )
-        }
     }
 
     /**
