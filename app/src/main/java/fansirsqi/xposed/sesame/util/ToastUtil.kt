@@ -1,12 +1,10 @@
 package fansirsqi.xposed.sesame.util
 
 import android.content.Context
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import fansirsqi.xposed.sesame.model.BaseModel.Companion.showToast
-import fansirsqi.xposed.sesame.model.BaseModel.Companion.toastOffsetY
 import fansirsqi.xposed.sesame.model.BaseModel.Companion.toastPerfix
 
 object ToastUtil {
@@ -45,10 +43,7 @@ object ToastUtil {
         Log.record(TAG, "showToast::$shouldShow::$finalMessage")
 
         if (shouldShow) {
-            val toast = Toast.makeText(context, finalMessage, Toast.LENGTH_SHORT)
-            // 2. 修复系统错误：Android 11 (API 30) 及以上禁止对文本 Toast 设置 Gravity
-            setToastGravity(toast)
-            toast.show()
+            Toast.makeText(context, finalMessage, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -63,10 +58,7 @@ object ToastUtil {
             finalMessage = "$prefix:$message"
         }
 
-        val toast = Toast.makeText(context, finalMessage, duration)
-        // 修复系统错误
-        setToastGravity(toast)
-        return toast
+        return Toast.makeText(context, finalMessage, duration)
     }
 
     fun makeText(message: String?, duration: Int): Toast {
@@ -83,18 +75,5 @@ object ToastUtil {
         Handler(Looper.getMainLooper()).postDelayed({
             makeText(message, Toast.LENGTH_SHORT).show()
         }, delayMillis.toLong())
-    }
-
-    // 抽离设置 Gravity 的逻辑
-    fun setToastGravity(toast: Toast) {
-        // Android 11 (API 30/R) 之后，makeText 创建的标准文本 Toast 禁止自定义位置
-        // 尝试设置会被系统忽略并打印 Error 日志
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            try {
-                toast.setGravity(toast.gravity, toast.xOffset, toastOffsetY.value ?: 0)
-            } catch (e: Exception) {
-                Log.printStackTrace(TAG, e)
-            }
-        }
     }
 }

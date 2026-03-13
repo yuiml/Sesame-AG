@@ -64,9 +64,7 @@ object Toast {
      */
     private fun createAndShowToast(context: Context?, message: CharSequence?) {
         try {
-            val toast = android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT)
-            ToastUtil.setToastGravity(toast)
-            toast.show()
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "createAndShowToast err:", t)
         }

@@ -3,6 +3,7 @@ package fansirsqi.xposed.sesame.hook.keepalive
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.PowerManager
+import fansirsqi.xposed.sesame.model.BaseModel
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.TimeUtil
 import kotlinx.coroutines.CancellationException
@@ -91,7 +92,11 @@ object SmartSchedulerManager {
 
         // 启动协程
         val job = scope.launch {
-            val wakeLock = acquireWakeLock(finalDelay + 5000)
+            val wakeLock = if (BaseModel.stayAwake.value == true) {
+                acquireWakeLock(finalDelay + 5000)
+            } else {
+                null
+            }
             Log.record(TAG, "⏳ 任务调度: [$taskName] | ID:$taskId | 延迟: ${TimeUtil.formatDuration(finalDelay)}")
             Log.record( ">".repeat(40))
 

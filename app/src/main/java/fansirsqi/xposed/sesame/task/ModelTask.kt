@@ -484,8 +484,10 @@ abstract class ModelTask : Model() {
                     waitingTasks[id] = this
                     isCounted = true
 
-                    // 增加 WakeLock 保底方案：注册一个空的调度任务，利用其 WakeLock 能力确保 CPU 活跃
-                    if (useSmartScheduler) {
+                    // 程序计时模式下，注册一个空调度任务作为保活；系统计时模式只保留普通 delay 等待
+                    val shouldUseProgramTimer =
+                        useSmartScheduler && BaseModel.timedTaskModel.value == BaseModel.TimedTaskModel.PROGRAM
+                    if (shouldUseProgramTimer) {
                         schedulerId = SmartSchedulerManager.schedule(delayTime, "WakeLock:$id") {}
                     }
 

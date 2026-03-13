@@ -47,6 +47,7 @@ import fansirsqi.xposed.sesame.model.BaseModel.Companion.checkInterval
 import fansirsqi.xposed.sesame.model.BaseModel.Companion.debugMode
 import fansirsqi.xposed.sesame.model.BaseModel.Companion.destroyData
 import fansirsqi.xposed.sesame.model.BaseModel.Companion.execAtTimeList
+import fansirsqi.xposed.sesame.model.BaseModel.Companion.manualTriggerAutoSchedule
 import fansirsqi.xposed.sesame.model.BaseModel.Companion.newRpc
 import fansirsqi.xposed.sesame.model.BaseModel.Companion.sendHookData
 import fansirsqi.xposed.sesame.model.BaseModel.Companion.sendHookDataUrl
@@ -255,6 +256,7 @@ class ApplicationHook {
                             // 访问被拒绝/需要滑块验证后，用户手动完成验证并回到首页时会触发 onResume。
                             // 这里自动退出离线状态并恢复执行链路，避免长期卡在离线模式无法继续任务。
                             // 注意：手动开启离线（reason=null 且 untilMs<=0）不应被自动退出。
+                            var recoveredFromOffline = false
                             if (ApplicationHookConstants.isOffline()) {
                                 val reason = ApplicationHookConstants.offlineReason
                                 val untilMs = ApplicationHookConstants.offlineUntilMs
@@ -330,6 +332,7 @@ class ApplicationHook {
                                     }
                                     stopAllTask()
                                     ApplicationHookConstants.clearPendingTriggers("offline_recover")
+                                    recoveredFromOffline = true
 
                                     ApplicationHookCore.requestExecution(
                                         ApplicationHookConstants.TriggerInfo(
@@ -340,6 +343,22 @@ class ApplicationHook {
                                         )
                                     )
                                 }
+                            }
+
+                            val resumeAt = System.currentTimeMillis()
+                            val recentlyReopenedByModule =
+                                lastReOpenAppLaunchAtMs > 0L &&
+                                    (resumeAt - lastReOpenAppLaunchAtMs) in 0..AUTH_LIKE_AUTO_RECOVER_GUARD_MS
+                            if (!recentlyReopenedByModule && !recoveredFromOffline && manualTriggerAutoSchedule.value == true) {
+                                record(TAG, "检测到手动回到目标应用，补触发一次任务执行")
+                                ApplicationHookCore.requestExecution(
+                                    ApplicationHookConstants.TriggerInfo(
+                                        type = ApplicationHookConstants.TriggerType.ON_RESUME,
+                                        priority = ApplicationHookConstants.TriggerPriority.NORMAL,
+                                        reason = "manual_on_resume",
+                                        dedupeKey = "manual_on_resume"
+                                    )
+                                )
                             }
                         }
                     }
