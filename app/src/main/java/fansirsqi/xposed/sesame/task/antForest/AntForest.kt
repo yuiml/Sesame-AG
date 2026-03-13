@@ -29,7 +29,6 @@ import fansirsqi.xposed.sesame.model.withDesc
 import fansirsqi.xposed.sesame.model.modelFieldExt.BooleanModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.ChoiceModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.IntegerModelField
-import fansirsqi.xposed.sesame.model.modelFieldExt.ListModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.ListModelField.ListJoinCommaToStringModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.SelectAndCountModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.SelectModelField
@@ -132,10 +131,10 @@ class AntForest : ModelTask(), EnergyCollectCallback {
     private var energyBombCardEndTime: Long = 0
 
     /**
-     * 1.1倍能量卡结束时间
+     * 收好友N倍卡结束时间
      */
     @Volatile
-    private var robExpandCardEndTime: Long = 0
+    private var robMultiplierCardEndTime: Long = 0
 
     private val delayTimeMath = Average(5)
     private val collectEnergyLockLimit = ObjReference(0L)
@@ -155,7 +154,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
     private var batchRobEnergy: BooleanModelField? = null // 批量收取能量开关
     private var collectSelfEnergyType: ChoiceModelField? = null // 收自己能量方式
     private var collectSelfEnergyThreshold: IntegerModelField? = null // 收自己能量阈值
-    private var robExpandCardLimt: IntegerModelField? = null//收取翻倍能量阈值
+    private var robMultiplierCollectLimit: IntegerModelField? = null // 领取N倍卡能量阈值
     private var collectBombEnergyLimit: IntegerModelField? = null // 炸弹能量收取阈值
     private var balanceNetworkDelay: BooleanModelField? = null // 平衡网络延迟开关
     var whackMoleMode: ChoiceModelField? = null // 6秒拼手速开关
@@ -210,8 +209,8 @@ class AntForest : ModelTask(), EnergyCollectCallback {
     private var ecoLifeTime: StringModelField? = null // 绿色行动执行时间
     private var giveProp: BooleanModelField? = null
 
-    private var robExpandCard: ChoiceModelField? = null //1.1倍能量卡
-    private val robExpandCardTime: ListModelField? = null //1.1倍能量卡时间
+    private var robMultiplierCard: ChoiceModelField? = null // 收好友N倍卡
+    private var robMultiplierCardTime: ListJoinCommaToStringModelField? = null // 收好友N倍卡时间
 
     private var cycleinterval: IntegerModelField? = null
     private var energyRainChance: BooleanModelField? = null
@@ -406,11 +405,11 @@ class AntForest : ModelTask(), EnergyCollectCallback {
         modelFields.addField(
             IntegerModelField(
                 "robExpandCardLimt",
-                "收取翻倍能量阈值",
+                "领取N倍卡能量阈值",
                 20000,
                 1,
                 20000
-            ).also { robExpandCardLimt = it }
+            ).withDesc("当 N 倍卡产生的可领取额外能量达到该值时才自动领取，避免零碎收益。").also { robMultiplierCollectLimit = it }
         )
 
         modelFields.addField(
@@ -420,7 +419,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 0,
                 0,
                 100000
-            ).also { collectBombEnergyLimit = it }
+            ).withDesc("好友挂炸弹卡时，单个能量球达到该值才尝试收取；0 表示不额外放宽。").also { collectBombEnergyLimit = it }
         )
         modelFields.addField(
             SelectModelField(
@@ -449,7 +448,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 "collectWateringBubble",
                 "收取浇水金球 | 开关",
                 false
-            ).also { collectWateringBubble = it })
+            ).withDesc("自动领取浇水金球、复活金球和保护回赠能量。").also { collectWateringBubble = it })
         modelFields.addField(
             ChoiceModelField(
                 "doubleCard",
@@ -473,7 +472,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
         modelFields.addField(
             BooleanModelField(
                 "DoubleCardConstant", "限时双击永动机 | 开关", false
-            ).also { doubleCardConstant = it }
+            ).withDesc("背包没有双击卡时自动尝试兑换，维持双击卡可用。").also { doubleCardConstant = it }
         )
         modelFields.addField(
             ChoiceModelField(
@@ -491,7 +490,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                     "1730",
                     "2359"
                 )
-            ).also { bubbleBoostTime = it })
+            ).withDesc("在这些时间点尝试使用加速卡；未到时间会挂定时任务。").also { bubbleBoostTime = it })
         modelFields.addField(
             ChoiceModelField(
                 "shieldCard",
@@ -504,24 +503,24 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 "shieldCardConstant",
                 "限时保护永动机 | 开关",
                 false
-            ).also { shieldCardConstant = it })
+            ).withDesc("背包没有保护罩时自动尝试兑换，维持保护罩可续用。").also { shieldCardConstant = it })
 
         modelFields.addField(
             ChoiceModelField(
                 "energyBombCardType", "炸弹卡开关 | 消耗类型", ApplyPropType.CLOSE,
                 ApplyPropType.nickNames, "若开启了保护罩，则不会使用炸弹卡"
-            ).also { energyBombCardType = it })
+            ).withDesc("配置能量炸弹卡的自动使用策略；开启保护罩时不会使用炸弹卡。").also { energyBombCardType = it })
         modelFields.addField(
             ChoiceModelField(
                 "robExpandCard",
-                "1.1倍能量卡开关 | 消耗类型",
+                "收好友N倍卡开关 | 消耗类型",
                 ApplyPropType.CLOSE,
                 ApplyPropType.nickNames
-            ).also { robExpandCard = it })
-        //1.1倍能量卡时间
+            ).withDesc("配置收好友 N 倍卡的自动使用策略。").also { robMultiplierCard = it })
+        // 收好友N倍卡时间
         modelFields.addField(
             ListJoinCommaToStringModelField(
-                "robExpandCardTime", "1.1倍能量卡 | 使用时间/不能范围",
+                "robExpandCardTime", "收好友N倍卡 | 使用时间/范围",
                 ListUtil.newArrayList(
                     "0700",
                     "0730",
@@ -533,7 +532,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                     "2030",
                     "2359"
                 )
-            )
+            ).withDesc("仅在这些时间点或时间范围内尝试使用非限时收好友 N 倍卡。").also { robMultiplierCardTime = it }
         )
         modelFields.addField(
             ChoiceModelField(
@@ -541,31 +540,31 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 "隐身卡开关 | 消耗类型",
                 ApplyPropType.CLOSE,
                 ApplyPropType.nickNames
-            ).also { stealthCard = it })
+            ).withDesc("配置隐身卡的自动使用策略。").also { stealthCard = it })
         modelFields.addField(
             BooleanModelField(
                 "stealthCardConstant",
                 "限时隐身永动机 | 开关",
                 false
-            ).also { stealthCardConstant = it })
+            ).withDesc("背包没有隐身卡时自动尝试兑换，维持隐身卡可用。").also { stealthCardConstant = it })
         modelFields.addField(
             IntegerModelField(
                 "returnWater10",
                 "返水 | 10克需收能量(关闭:0)",
                 0
-            ).also { returnWater10 = it })
+            ).withDesc("对同一好友当日收能量达到该值后，才自动回浇 10 克；0 为关闭。").also { returnWater10 = it })
         modelFields.addField(
             IntegerModelField(
                 "returnWater18",
                 "返水 | 18克需收能量(关闭:0)",
                 0
-            ).also { returnWater18 = it })
+            ).withDesc("对同一好友当日收能量达到该值后，才自动回浇 18 克；0 为关闭。").also { returnWater18 = it })
         modelFields.addField(
             IntegerModelField(
                 "returnWater33",
                 "返水 | 33克需收能量(关闭:0)",
                 0
-            ).also { returnWater33 = it })
+            ).withDesc("对同一好友当日收能量达到该值后，才自动回浇 33 克；0 为关闭。").also { returnWater33 = it })
         modelFields.addField(
             SelectAndCountModelField(
                 "waterFriendList",
@@ -585,7 +584,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 "notifyFriend",
                 "浇水 | 通知好友",
                 false
-            ).also { notifyFriend = it })
+            ).withDesc("给好友浇水时同时发送通知消息。").also { notifyFriend = it })
         modelFields.addField(
             BooleanModelField(
                 "giveProp",
@@ -628,7 +627,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 0,
                 0,
                 100000
-            ).also { helpFriendCollectListLimit = it }
+            ).withDesc("仅当好友可复活能量大于等于该值时才帮其复活。").also { helpFriendCollectListLimit = it }
         )
         modelFields.addField(BooleanModelField("vitalityExchange", "活力值 | 兑换开关", false).withDesc(
             "自动用活力值兑换已配置的道具或皮肤。"
@@ -660,37 +659,65 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             "自动领取好友种树后的礼盒奖励。"
         ).also { collectGiftBox = it })
 
-        modelFields.addField(BooleanModelField("medicalHealth", "健康医疗任务 | 开关", false).also { medicalHealth = it })
+        modelFields.addField(BooleanModelField("medicalHealth", "健康医疗任务 | 开关", false).withDesc(
+            "按已选项目领取健康医疗相关的森林能量奖励。"
+        ).also { medicalHealth = it })
         modelFields.addField(
             SelectModelField(
                 "medicalHealthOption", "健康医疗 | 选项", LinkedHashSet<String?>(), listHealthcareOptions(),
                 "医疗健康需要先完成一次医疗打卡"
             ).also { medicalHealthOption = it })
 
-        modelFields.addField(BooleanModelField("forestMarket", "森林集市", false).also { forestMarket = it })
-        modelFields.addField(BooleanModelField("youthPrivilege", "青春特权 | 森林道具", false).also { youthPrivilege = it })
-        modelFields.addField(BooleanModelField("studentCheckIn", "青春特权 | 签到红包", false).also { dailyCheckIn = it })
+        modelFields.addField(BooleanModelField("forestMarket", "森林集市", false).withDesc(
+            "执行森林集市任务并领取奖励。"
+        ).also { forestMarket = it })
+        modelFields.addField(BooleanModelField("youthPrivilege", "青春特权 | 森林道具", false).withDesc(
+            "领取青春特权中的森林道具奖励。"
+        ).also { youthPrivilege = it })
+        modelFields.addField(BooleanModelField("studentCheckIn", "青春特权 | 签到红包", false).withDesc(
+            "执行青春特权签到红包。"
+        ).also { dailyCheckIn = it })
         modelFields.addField(BooleanModelField("ecoLife", "绿色行动 | 开关", false).withDesc(
             "执行绿色行动任务。"
         ).also { ecoLife = it })
         modelFields.addField(StringModelField("ecoLifeTime", "绿色行动 | 默认8点后执行", "0800").withDesc(
             "限制绿色行动开始时间。"
         ).also { ecoLifeTime = it })
-        modelFields.addField(BooleanModelField("ecoLifeOpen", "绿色任务 |  自动开通", false).also { ecoLifeOpen = it })
+        modelFields.addField(BooleanModelField("ecoLifeOpen", "绿色任务 |  自动开通", false).withDesc(
+            "绿色行动未开通时自动尝试开通后再执行任务。"
+        ).also { ecoLifeOpen = it })
         modelFields.addField(
             SelectModelField(
                 "ecoLifeOption", "绿色行动 | 选项", LinkedHashSet<String?>(), listEcoLifeOptions(), "光盘行动需要先完成一次光盘打卡"
             ).also { ecoLifeOption = it })
 
-        modelFields.addField(StringModelField("queryInterval", "查询间隔(毫秒或毫秒范围)", "1000-2000").also { queryInterval = it })
-        modelFields.addField(StringModelField("collectInterval", "收取间隔(毫秒或毫秒范围)", "1000-1500").also { collectInterval = it })
-        modelFields.addField(StringModelField("doubleCollectInterval", "双击间隔(毫秒或毫秒范围)", "800-2400").also { doubleCollectInterval = it })
-        modelFields.addField(BooleanModelField("balanceNetworkDelay", "平衡网络延迟", true).also { balanceNetworkDelay = it })
-        modelFields.addField(IntegerModelField("advanceTime", "提前时间(毫秒)", 0, Int.MIN_VALUE, 500).also { advanceTime = it })
-        modelFields.addField(IntegerModelField("tryCount", "尝试收取(次数)", 1, 0, 5).also { tryCount = it })
-        modelFields.addField(IntegerModelField("retryInterval", "重试间隔(毫秒)", 1200, 0, 10000).also { retryInterval = it })
-        modelFields.addField(IntegerModelField("cycleinterval", "循环间隔(毫秒)", 5000, 0, 10000).also { cycleinterval = it })
-        modelFields.addField(BooleanModelField("showBagList", "显示背包内容", true).also { showBagList = it })
+        modelFields.addField(StringModelField("queryInterval", "查询间隔(毫秒或毫秒范围)", "1000-2000").withDesc(
+            "控制查询主页、排行榜等请求间隔，可填固定值或范围。"
+        ).also { queryInterval = it })
+        modelFields.addField(StringModelField("collectInterval", "收取间隔(毫秒或毫秒范围)", "1000-1500").withDesc(
+            "控制实际收取能量请求的间隔，可填固定值或范围。"
+        ).also { collectInterval = it })
+        modelFields.addField(StringModelField("doubleCollectInterval", "双击间隔(毫秒或毫秒范围)", "800-2400").withDesc(
+            "控制双击补收时两次收取之间的间隔，可填固定值或范围。"
+        ).also { doubleCollectInterval = it })
+        modelFields.addField(BooleanModelField("balanceNetworkDelay", "平衡网络延迟", true).withDesc(
+            "根据实际网络耗时动态平衡收取节奏，减少过快触发风控。"
+        ).also { balanceNetworkDelay = it })
+        modelFields.addField(IntegerModelField("advanceTime", "提前时间(毫秒)", 0, Int.MIN_VALUE, 500).withDesc(
+            "实验参数：预留给蹲点提前量控制，通常保持 0。"
+        ).also { advanceTime = it })
+        modelFields.addField(IntegerModelField("tryCount", "尝试收取(次数)", 1, 0, 5).withDesc(
+            "单次收取失败后的最大重试次数。"
+        ).also { tryCount = it })
+        modelFields.addField(IntegerModelField("retryInterval", "重试间隔(毫秒)", 1200, 0, 10000).withDesc(
+            "单次收取失败后再次尝试的等待时间。"
+        ).also { retryInterval = it })
+        modelFields.addField(IntegerModelField("cycleinterval", "循环间隔(毫秒)", 5000, 0, 10000).withDesc(
+            "只收能量时间段内，每轮循环查找与收取的间隔。"
+        ).also { cycleinterval = it })
+        modelFields.addField(BooleanModelField("showBagList", "显示背包内容", true).withDesc(
+            "任务开始时输出当前森林背包道具清单。"
+        ).also { showBagList = it })
         return modelFields
     }
 
@@ -3265,12 +3292,12 @@ class AntForest : ModelTask(), EnergyCollectCallback {
 
                     "robExpandCard" -> {
                         val extInfo = userUsingProp.optString("extInfo")
-                        robExpandCardEndTime = userUsingProp.getLong("endTime")
-                        Log.record(TAG, "$propName 剩余时间⏰：" + formatTimeDifference(robExpandCardEndTime - System.currentTimeMillis()))
+                        robMultiplierCardEndTime = userUsingProp.getLong("endTime")
+                        Log.record(TAG, "$propName 剩余时间⏰：" + formatTimeDifference(robMultiplierCardEndTime - System.currentTimeMillis()))
                         if (!extInfo.isEmpty()) {
                             val extInfoObj = runCatching { JSONObject(extInfo) }.getOrNull()
                             if (extInfoObj == null) {
-                                Log.record(TAG, "$propName 附加信息解析失败，跳过翻倍能量领取")
+                                Log.record(TAG, "$propName 附加信息解析失败，跳过N倍卡能量领取")
                                 continue
                             }
                             val leftEnergy = extInfoObj.optString("leftEnergy", "0").toDoubleOrNull()
@@ -3280,14 +3307,14 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                                 ?: leftEnergy.toInt()
                             val overLimitToday = extInfoObj.optBoolean("overLimitToday", false) ||
                                 extInfoObj.optString("overLimitToday", "false").equals("true", true)
-                            val robExpandLimit = (robExpandCardLimt?.value ?: 0).coerceAtLeast(1).toDouble()
-                            val shouldCollectRobExpand = collectableEnergy >= 1 ||
-                                leftEnergy >= robExpandLimit
-                            if (shouldCollectRobExpand) {
+                            val robMultiplierLimit = (robMultiplierCollectLimit?.value ?: 0).coerceAtLeast(1).toDouble()
+                            val shouldCollectRobMultiplierEnergy = collectableEnergy >= 1 ||
+                                leftEnergy >= robMultiplierLimit
+                            if (shouldCollectRobMultiplierEnergy) {
                                 val propId = userUsingProp.optString("propId")
                                 val propType = userUsingProp.optString("propType")
                                 if (propId.isBlank() || propType.isBlank()) {
-                                    Log.record(TAG, "$propName 缺少 propId/propType，跳过翻倍能量领取")
+                                    Log.record(TAG, "$propName 缺少 propId/propType，跳过N倍卡能量领取")
                                     continue
                                 }
                                 val jo = JSONObject(AntForestRpcCall.collectRobExpandEnergy(propId, propType))
@@ -3303,15 +3330,15 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                                     }
                                     val remainEnergy = jo.optString("leftEnergy")
                                     val remainSuffix = if (remainEnergy.isNotEmpty()) "#剩余${remainEnergy}g" else ""
-                                    Log.forest("翻倍能量🌳[" + collectEnergy + "g][$propName]$remainSuffix")
+                                    Log.forest("N倍卡能量🌳[" + collectEnergy + "g][$propName]$remainSuffix")
                                 } else if (jo.optString("resultCode") == "COLLECT_EXPAND_ENERGY_NOT_ENOUGH") {
                                     Log.record(
                                         TAG,
-                                        "$propName 剩余${jo.optString("leftEnergy", leftEnergy.toString())}g，整数部分不足1g，跳过翻倍能量领取"
+                                        "$propName 剩余${jo.optString("leftEnergy", leftEnergy.toString())}g，整数部分不足1g，跳过N倍卡能量领取"
                                     )
                                 }
                             } else if (leftEnergy > 0.0 || overLimitToday) {
-                                Log.record(TAG, "$propName 剩余${leftEnergy}g，整数部分不足1g，跳过翻倍能量领取")
+                                Log.record(TAG, "$propName 剩余${leftEnergy}g，整数部分不足1g，跳过N倍卡能量领取")
                             }
                         }
                     }
@@ -3873,7 +3900,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
              * 2. 获取当前时间及各类道具的到期时间，计算剩余时间。
              * 3. 根据以下条件判断是否需要使用特定道具:
              *    - needDouble: 双击卡开关已打开，且当前没有生效的双击卡。
-             *    - needrobExpand: 1.1倍能量卡开关已打开，且当前没有生效的卡。
+             *    - needRobMultiplierCard: 收好友N倍卡开关已打开，且当前没有生效的卡。
              *    - needStealth: 隐身卡开关已打开，且当前没有生效的隐身卡。
              *    - needShield: 保护罩开关已打开，炸弹卡开关已关闭，且保护罩剩余时间不足一天。
              *    - needEnergyBombCard: 炸弹卡开关已打开，保护罩开关已关闭，且炸弹卡剩余时间不足三天。
@@ -3888,8 +3915,8 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                     now
                 )
 
-            val needrobExpand =
-                robExpandCard!!.value != ApplyPropType.CLOSE && robExpandCardEndTime < now
+            val needRobMultiplierCard =
+                robMultiplierCard!!.value != ApplyPropType.CLOSE && robMultiplierCardEndTime < now
             val needStealth =
                 stealthCard!!.value != ApplyPropType.CLOSE && stealthEndTime < now
 
@@ -3905,11 +3932,11 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             val needBubbleBoostCard = bubbleBoostCard!!.value != ApplyPropType.CLOSE
 
             Log.record(
-                TAG, "道具使用检查: needDouble=" + needDouble + ", needrobExpand=" + needrobExpand +
+                TAG, "道具使用检查: needDouble=" + needDouble + ", needRobMultiplierCard=" + needRobMultiplierCard +
                         ", needStealth=" + needStealth + ", needShield=" + needShield +
                         ", needEnergyBombCard=" + needEnergyBombCard + ", needBubbleBoostCard=" + needBubbleBoostCard
             )
-            if (needDouble || needStealth || needShield || needEnergyBombCard || needrobExpand || needBubbleBoostCard) {
+            if (needDouble || needStealth || needShield || needEnergyBombCard || needRobMultiplierCard || needBubbleBoostCard) {
                 synchronized(doubleCardLockObj) {
                     val bagObject = queryPropList()
                     if (bagObject == null) {
@@ -3919,7 +3946,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                     // Log.runtime(TAG, "bagObject=" + (bagObject == null ? "null" : bagObject.toString()));
                     if (needDouble) useDoubleCard(bagObject) // 使用双击卡
 
-                    if (needrobExpand) userobExpandCard(bagObject) // 使用1.1倍能量卡
+                    if (needRobMultiplierCard) useRobMultiplierCard(bagObject) // 使用收好友N倍卡
 
                     if (needStealth) useStealthCard(bagObject) // 使用隐身卡
 
@@ -4166,6 +4193,17 @@ class AntForest : ModelTask(), EnergyCollectCallback {
     private fun hasDoubleCardTime(): Boolean {
         val currentTimeMillis = System.currentTimeMillis()
         val timeRanges = doubleCardTime?.value?.filterNotNull() ?: emptyList()
+        return TimeUtil.checkInTimeRange(currentTimeMillis, timeRanges)
+    }
+
+    /**
+     * 检查当前时间是否在设置的收好友N倍卡使用时间内
+     *
+     * @return 如果当前时间在收好友N倍卡的有效时间范围内，返回 true；否则返回 false。
+     */
+    private fun hasRobMultiplierCardTime(): Boolean {
+        val currentTimeMillis = System.currentTimeMillis()
+        val timeRanges = robMultiplierCardTime?.value?.filterNotNull() ?: emptyList()
         return TimeUtil.checkInTimeRange(currentTimeMillis, timeRanges)
     }
 
@@ -4687,13 +4725,13 @@ class AntForest : ModelTask(), EnergyCollectCallback {
         return boostProps.firstOrNull()
     }
 
-    private fun selectPreferredRobExpandProp(bagObject: JSONObject?): JSONObject? {
-        val robExpandProps = collectAvailablePropsByGroup(bagObject, "robExpandCard")
-        if (robExpandProps.isEmpty()) {
+    private fun selectPreferredRobMultiplierProp(bagObject: JSONObject?): JSONObject? {
+        val robMultiplierProps = collectAvailablePropsByGroup(bagObject, "robExpandCard")
+        if (robMultiplierProps.isEmpty()) {
             return null
         }
-        val choice = robExpandCard?.value ?: ApplyPropType.CLOSE
-        val filteredProps = robExpandProps.filter { prop ->
+        val choice = robMultiplierCard?.value ?: ApplyPropType.CLOSE
+        val filteredProps = robMultiplierProps.filter { prop ->
             if (choice != ApplyPropType.ONLY_LIMIT_TIME) {
                 true
             } else {
@@ -4919,7 +4957,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             }
 
             propType.contains("EXPAND_CARD") -> {
-                robExpandCardEndTime = maxOf(robExpandCardEndTime, now + 5 * TimeFormatter.ONE_MINUTE_MS)
+                robMultiplierCardEndTime = maxOf(robMultiplierCardEndTime, now + 5 * TimeFormatter.ONE_MINUTE_MS)
             }
         }
         Log.record(TAG, "道具[$propName]已在生效中，跳过重复使用并同步状态")
@@ -5266,26 +5304,31 @@ class AntForest : ModelTask(), EnergyCollectCallback {
     }
 
     /**
-     * 使用1.1倍能量卡道具
-     * 功能：增加能量收取倍数，收取好友能量时获得1.1倍效果
+     * 使用收好友N倍卡
+     * 功能：增加收好友能量倍率，适配 1.1 / 1.3 / 1.5 / 1.8 等倍率卡
      */
-    private fun userobExpandCard(bag: JSONObject? = queryPropList()) {
+    private fun useRobMultiplierCard(bag: JSONObject? = queryPropList()) {
         try {
-            if (robExpandCardEndTime > System.currentTimeMillis()) {
+            if (robMultiplierCardEndTime > System.currentTimeMillis()) {
                 Log.record(
                     TAG,
-                    "收好友翻倍卡已生效，剩余${formatTimeDifference(robExpandCardEndTime - System.currentTimeMillis())}，跳过重复使用"
+                    "收好友N倍卡已生效，剩余${formatTimeDifference(robMultiplierCardEndTime - System.currentTimeMillis())}，跳过重复使用"
                 )
                 return
             }
-            val jo = selectPreferredRobExpandProp(bag)
+            val jo = selectPreferredRobMultiplierProp(bag)
+            val propType = getPropType(jo)
+            if (jo != null && !propType.contains("LIMIT_TIME") && !propType.contains("DAY") && !hasRobMultiplierCardTime()) {
+                Log.record(TAG, "跳过收好友N倍卡[$propType]，当前不在非限时卡指定使用时间段内")
+                return
+            }
             if (jo != null && usePropBag(jo)) {
-                robExpandCardEndTime = System.currentTimeMillis() + 1000 * 60 * 5
+                robMultiplierCardEndTime = System.currentTimeMillis() + 1000 * 60 * 5
             } else {
-                Log.record(TAG, "背包中无可用翻倍卡")
+                Log.record(TAG, "背包中无可用收好友N倍卡")
             }
         } catch (th: Throwable) {
-            Log.printStackTrace(TAG, "useBubbleBoostCard err", th)
+            Log.printStackTrace(TAG, "useRobMultiplierCard err", th)
         }
     }
 
