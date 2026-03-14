@@ -54,7 +54,7 @@ object ManualTask {
         }
 
         if (!WorkflowRootGuard.hasRoot(forceRefresh = true, reason = "manual_task_run")) {
-            Log.record("ManualTask", "⛔ 未检测到 Root 权限，手动任务不会执行")
+            Log.record("ManualTask", "⛔ 未检测到可用执行权限，手动任务不会执行")
             return
         }
 

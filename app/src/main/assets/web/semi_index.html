@@ -230,6 +230,7 @@
 
             const [tabs, setTabs] = useState([]);
             const [modelsMap, setModelsMap] = useState({});
+            const panelRefs = useRef({});
 
             // 列表弹窗相关的 State
             const [sheetVisible, setSheetVisible] = useState(false);
@@ -347,6 +348,17 @@
 
             const handleCountChange = (id, val) => {
                 setSelectedCounts(prev => ({ ...prev, [id]: val }));
+            };
+
+            const scrollToPanel = (modelCode) => {
+                window.setTimeout(() => {
+                    const panelNode = panelRefs.current[modelCode];
+                    if (panelNode && typeof panelNode.scrollIntoView === 'function') {
+                        panelNode.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    } else {
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
+                }, 320);
             };
 
             const renderFieldLabel = (name, desc, todayInactive, todayInactiveReason) => (
@@ -483,7 +495,21 @@
                         <Collapse accordion defaultActiveKey={tabs[0]?.modelCode}>
                             {tabs.map((tab) => (
                                 <Collapse.Panel
-                                    header={<div style={{ fontWeight: 600 }}>{tab.modelName}</div>}
+                                    header={
+                                        <div
+                                            ref={(node) => {
+                                                if (node) {
+                                                    panelRefs.current[tab.modelCode] = node;
+                                                } else {
+                                                    delete panelRefs.current[tab.modelCode];
+                                                }
+                                            }}
+                                            style={{ fontWeight: 600, scrollMarginTop: '5rem' }}
+                                            onClick={() => scrollToPanel(tab.modelCode)}
+                                        >
+                                            {tab.modelName}
+                                        </div>
+                                    }
                                     itemKey={tab.modelCode}
                                     key={tab.modelCode}
                                 >

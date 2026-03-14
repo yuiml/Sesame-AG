@@ -72,19 +72,19 @@ fun ServicesStatusCard(
                         )
                         Column(Modifier.padding(start = 20.dp)) {
                             Text(
-                                text = if (isRootReady) "Root 服务正常" else "仅检测到 Shizuku",
+                                text = if (isRootReady) "Root Shell 已连接" else "Shizuku Shell 已连接",
                                 style = MaterialTheme.typography.titleMedium
                             )
                             Text(
-                                text = if (isRootReady) "自动工作流已解锁" else "当前版本仅 Root 可启用工作流",
+                                text = if (isRootReady) "命令服务具备 Root 执行器" else "命令服务当前使用 Shizuku 执行器",
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             Spacer(Modifier.height(4.dp))
                             Text(
                                 text = if (isRootReady) {
-                                    "已检测到 Root 权限，当前配置允许生效"
+                                    "已检测到 Root Shell，命令服务可直接执行提权命令"
                                 } else {
-                                    "Shizuku 状态仅供诊断，当前配置不会生效"
+                                    "此卡仅反映命令执行器；若当前进程已由 LSPosed/LibXposed 注入，工作流仍可生效"
                                 },
                                 style = MaterialTheme.typography.bodySmall
                             )
@@ -125,11 +125,11 @@ fun ServicesStatusCard(
                     Text(text = "授权指南", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "当前版本仅在检测到 Root 权限后才会启动工作流并使配置生效。\n\n" +
+                        text = "工作流权限以 Hook 注入或实时 Root 检测结果为准；此卡仅反映命令服务当前选中的 Shell 执行器。\n\n" +
                                 "说明：\n" +
-                                "1. Shizuku 状态仅用于排障与状态展示，不会解锁自动任务。\n" +
-                                "2. 请先确认设备已 Root，并在 Root 管理器中授予本应用 Root 权限。\n" +
-                                "3. 返回首页后等待状态刷新为 Root。",
+                                "1. 当前进程已由 LSPosed/LibXposed 注入时，可直接启动工作流。\n" +
+                                "2. 未注入时，会回退到实时 Root 检测。\n" +
+                                "3. Shizuku 状态主要用于排障与命令服务展示，不单独决定配置是否生效。",
                         style = MaterialTheme.typography.bodyMedium,
                         lineHeight = 20.sp
                     )

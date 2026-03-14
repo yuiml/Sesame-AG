@@ -15,7 +15,6 @@ import fansirsqi.xposed.sesame.util.FansirsqiUtil
 import fansirsqi.xposed.sesame.util.Files
 import fansirsqi.xposed.sesame.util.IconManager
 import fansirsqi.xposed.sesame.util.Log
-import fansirsqi.xposed.sesame.util.StatusManager
 import fansirsqi.xposed.sesame.util.maps.UserMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -114,29 +113,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * 刷新模块框架激活状态
      */
     private fun refreshModuleFrameworkStatus() {
-        // 1. 尝试从文件读取状态 (兼容 LSPatch)
-        val fileStatus = StatusManager.readStatus()
-
-        // 2. 尝试从 Service 读取状态 (兼容 LSPosed)
         val lspState = LsposedServiceManager.connectionState
 
         if (lspState is ConnectionState.Connected) {
-            // 优先信赖 Service，因为它是实时的且信息全
             _moduleStatus.value = ModuleStatus.Activated(
                 frameworkName = lspState.service.frameworkName,
                 frameworkVersion = lspState.service.frameworkVersion,
                 apiVersion = lspState.service.apiVersion
             )
-        } else if (fileStatus != null) {
-            // 如果 Service 没连上，但文件里有状态（说明 LSPatch 生效并写入了）
-            // 可选：检查时间戳，如果太久远可能意味着目标应用没在运行
-            _moduleStatus.value = ModuleStatus.Activated(
-                frameworkName = fileStatus.framework,
-                frameworkVersion = "",
-                apiVersion = -1
-            )
         } else {
-            // 啥都没有
             _moduleStatus.value = ModuleStatus.NotActivated
         }
     }

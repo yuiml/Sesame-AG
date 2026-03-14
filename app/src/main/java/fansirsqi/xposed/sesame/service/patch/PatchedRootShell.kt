@@ -6,6 +6,7 @@ import fansirsqi.xposed.sesame.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import java.io.DataOutputStream
 import java.io.File
 
 class SafeRootShell : Shell {
@@ -17,11 +18,14 @@ class SafeRootShell : Shell {
     override val PERMISSION_LEVEL: String = "Root"
 
     override suspend fun isAvailable(): Boolean {
-        val result = runCommand("echo test", TEST_TIMEOUT, logFailure = false)
+        val result = runCommand("id && echo __SESAME_ROOT_OK__", TEST_TIMEOUT, logFailure = false)
 
-        val available = result.isSuccess && result.stdout.trim().contains("test")
+        val stdout = result.stdout.trim()
+        val available = result.isSuccess && (
+            stdout.contains("uid=0") || stdout.contains("__SESAME_ROOT_OK__")
+            )
         if (!available) {
-            Log.d(TAG, "Root不可用: Code=${result.exitCode}, Err='${result.stderr}'")
+            Log.d(TAG, "Root不可用: Code=${result.exitCode}, Out='$stdout', Err='${result.stderr}'")
         }
         return available
     }
@@ -65,11 +69,20 @@ class SafeRootShell : Shell {
         val failures = ArrayList<String>()
         for (suPath in resolveSuCandidates()) {
             try {
-                val process = Runtime.getRuntime().exec(arrayOf(suPath, "-c", command))
-                val stdout = process.inputStream.bufferedReader().use { it.readText() }.trim()
-                val stderr = process.errorStream.bufferedReader().use { it.readText() }.trim()
-                val exitCode = process.waitFor()
-                return ShellResult(stdout, stderr, exitCode)
+                val directResult = runSuWithArgs(suPath, command)
+                if (directResult.isSuccess || looksLikeRootProbeSucceeded(command, directResult.stdout)) {
+                    return directResult
+                }
+
+                val interactiveResult = runSuInteractively(suPath, command)
+                if (interactiveResult.isSuccess || looksLikeRootProbeSucceeded(command, interactiveResult.stdout)) {
+                    return interactiveResult
+                }
+
+                failures.add(
+                    "$suPath -> direct(code=${directResult.exitCode}, err=${directResult.stderr}); " +
+                        "interactive(code=${interactiveResult.exitCode}, err=${interactiveResult.stderr})"
+                )
             } catch (t: Throwable) {
                 failures.add("$suPath -> ${t.message}")
             }
@@ -92,6 +105,7 @@ class SafeRootShell : Shell {
             listOf(
                 "/system/bin/su",
                 "/system/xbin/su",
+                "/system/sbin/su",
                 "/sbin/su",
                 "/vendor/bin/su",
                 "/su/bin/su",
@@ -102,5 +116,44 @@ class SafeRootShell : Shell {
             ).distinct().filter { candidate ->
             !candidate.contains("/") || File(candidate).exists()
         }
+    }
+
+    private fun runSuWithArgs(suPath: String, command: String): ShellResult {
+        val process = Runtime.getRuntime().exec(arrayOf(suPath, "-c", command))
+        val stdout = process.inputStream.bufferedReader().use { it.readText() }.trim()
+        val stderr = process.errorStream.bufferedReader().use { it.readText() }.trim()
+        val exitCode = process.waitFor()
+        return ShellResult(stdout, stderr, exitCode)
+    }
+
+    private fun runSuInteractively(suPath: String, command: String): ShellResult {
+        var process: Process? = null
+        var output: DataOutputStream? = null
+        return try {
+            process = Runtime.getRuntime().exec(arrayOf(suPath))
+            output = DataOutputStream(process.outputStream)
+            output.writeBytes(command)
+            output.writeBytes("\n")
+            output.writeBytes("exit\n")
+            output.flush()
+
+            val exitCode = process.waitFor()
+            val stdout = process.inputStream.bufferedReader().use { it.readText() }.trim()
+            val stderr = process.errorStream.bufferedReader().use { it.readText() }.trim()
+            ShellResult(stdout, stderr, exitCode)
+        } finally {
+            try {
+                output?.close()
+            } catch (_: Throwable) {
+            }
+            process?.destroy()
+        }
+    }
+
+    private fun looksLikeRootProbeSucceeded(command: String, stdout: String): Boolean {
+        if (!command.contains("__SESAME_ROOT_OK__") && !command.startsWith("id")) {
+            return false
+        }
+        return stdout.contains("uid=0") || stdout.contains("__SESAME_ROOT_OK__")
     }
 }

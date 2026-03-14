@@ -489,7 +489,7 @@ class ApplicationHook {
                     appContext = appService.applicationContext
                     ensureScheduler()
 
-                    mainTask = MainTask("主任务") { runMainTaskLogic() }
+                    ensureMainTask()
                     dayCalendar = Calendar.getInstance()
                     val initReason = pendingInitReason ?: "service_onCreate"
                     if (!init || pendingInit) {
@@ -512,7 +512,7 @@ class ApplicationHook {
                         destroyHandler()
                         service = null
                         mainTask = null
-                        restartByBroadcast()
+                        record(TAG, "🛑 目标应用前台服务已销毁，停止当前模块运行，不再自动重启目标应用")
                     }
                 }
             })
@@ -597,7 +597,7 @@ class ApplicationHook {
                                     }
                                 }
                                 if (!WorkflowRootGuard.hasRoot(forceRefresh = true, reason = "manual_task")) {
-                                    record(TAG, "⛔ 未检测到 Root 权限，忽略手动任务指令: $taskName")
+                                    record(TAG, "⛔ 未检测到可用执行权限，忽略手动任务指令: $taskName")
                                     return@execute
                                 }
                                 ManualTask.runSingle(task, extraParams)
@@ -606,7 +606,7 @@ class ApplicationHook {
                             }
                         } else {
                             if (!WorkflowRootGuard.hasRoot(forceRefresh = true, reason = "manual_task_model")) {
-                                record(TAG, "⛔ 未检测到 Root 权限，忽略手动模型任务指令")
+                                record(TAG, "⛔ 未检测到可用执行权限，忽略手动模型任务指令")
                                 return@execute
                             }
                             for (model in Model.modelArray) {
@@ -755,6 +755,12 @@ class ApplicationHook {
 
         var mainTask: MainTask? = null
 
+        private fun ensureMainTask() {
+            if (mainTask == null) {
+                mainTask = MainTask("主任务") { runMainTaskLogic() }
+            }
+        }
+
         internal fun isReadyForExec(): Boolean {
             return init && Config.isLoaded() && service != null && WorkflowRootGuard.hasGrantedRoot()
         }
@@ -806,7 +812,7 @@ class ApplicationHook {
                 TaskLock().use { _ ->
                     if (!init || !Config.isLoaded()) return@withContext
                     if (!WorkflowRootGuard.hasRoot(forceRefresh = true, reason = "main_task")) {
-                        record(TAG, "⛔ Root 权限不可用，终止主任务执行")
+                        record(TAG, "⛔ 可用执行权限不可用，终止主任务执行")
                         ApplicationHookConstants.clearPendingTriggers("root_denied")
                         destroyHandler()
                         return@withContext
@@ -1077,12 +1083,12 @@ class ApplicationHook {
             }
 
             rootCheckInProgress = true
-            record(TAG, "⏳ 正在检查 Root 权限，暂不启动工作流: $reason")
+            record(TAG, "⏳ 正在检查执行权限，暂不启动工作流: $reason")
             execute {
                 try {
                     val granted = WorkflowRootGuard.hasRoot(forceRefresh = true, reason = reason)
                     if (!granted) {
-                        updateStatusText("未检测到 Root 权限，已禁止工作流")
+                        updateStatusText("未检测到可用执行权限，已禁止工作流")
                         ApplicationHookConstants.clearPendingTriggers("root_denied")
                         return@execute
                     }
@@ -1090,13 +1096,13 @@ class ApplicationHook {
                     val retryReason = pendingInitReason ?: reason
                     rootCheckInProgress = false
                     if (service != null && !init) {
-                        record(TAG, "✅ Root 权限检查通过，继续初始化: $retryReason")
+                        record(TAG, "✅ 执行权限检查通过，继续初始化: $retryReason")
                         if (initHandler(retryReason)) {
                             init = true
                         }
                     }
                 } catch (th: Throwable) {
-                    printStackTrace(TAG, "checkRootPermission", th)
+                    printStackTrace(TAG, "checkExecutionPermission", th)
                 } finally {
                     rootCheckInProgress = false
                 }

@@ -1,27 +1,21 @@
 package fansirsqi.xposed.sesame.hook
 
-import fansirsqi.xposed.sesame.util.Files
-import fansirsqi.xposed.sesame.util.JsonHelper
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.RpcCache
-import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
 
 /**
- * Hook 侧模块状态导出（ModuleStatus.json + HTTP /status）
+ * Hook 侧模块状态导出（内存快照 + HTTP /status）
  *
  * 设计目标：
- * - 写盘频率可控（debounce）
+ * - 刷新频率可控（debounce）
  * - 输出字段向后兼容（保留 framework/timestamp/packageName）
  * - 可观测：offline / rpc / rpcCache
  */
 object ModuleStatusReporter {
 
-    private const val TAG = "ModuleStatusReporter"
-    private const val STATUS_FILE_NAME = "ModuleStatus.json"
     private const val DEFAULT_DEBOUNCE_MS = 800L
-
     private val lastWriteAtMs = AtomicLong(0L)
 
     @Volatile
@@ -32,10 +26,6 @@ object ModuleStatusReporter {
 
     @Volatile
     private var lastPackageName: String? = null
-
-    private fun getStatusFile(): File {
-        return File(Files.CONFIG_DIR.parentFile, STATUS_FILE_NAME)
-    }
 
     fun setBaseInfo(framework: String?, packageName: String?) {
         if (!framework.isNullOrBlank()) {
@@ -60,26 +50,8 @@ object ModuleStatusReporter {
         setBaseInfo(framework, packageName)
 
         val snapshot = buildStatusSnapshot(reason)
-        val json = try {
-            JsonHelper.toJson(snapshot)
-        } catch (e: Exception) {
-            Log.printStackTrace(TAG, "toJson failed", e)
-            "{}"
-        }
-
-        val ok = try {
-            Files.write2File(json, getStatusFile())
-        } catch (e: Exception) {
-            Log.printStackTrace(TAG, "write status failed", e)
-            false
-        }
-
         lastSnapshot = snapshot
         lastWriteAtMs.set(snapshot["timestamp"] as? Long ?: System.currentTimeMillis())
-
-        if (!ok) {
-            Log.runtime(TAG, "write ModuleStatus.json failed: ${getStatusFile().absolutePath}")
-        }
         return snapshot
     }
 

@@ -11,7 +11,9 @@ import android.os.RemoteException
 import fansirsqi.xposed.sesame.ICallback
 import fansirsqi.xposed.sesame.ICommandService
 import fansirsqi.xposed.sesame.IStatusListener
+import fansirsqi.xposed.sesame.service.CommandService
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -27,10 +29,10 @@ object CommandUtil {
 
     private const val TAG = "CommandUtil"
     private const val ACTION_BIND = "fansirsqi.xposed.sesame.action.BIND_COMMAND_SERVICE"
-    private const val PACKAGE_NAME = "fansirsqi.xposed.sesame"
-
     private const val BIND_TIMEOUT_MS = 5000L      // 绑定超时时间
     private const val EXEC_TIMEOUT_MS = 15000L     // 命令执行超时时间
+    private const val BIND_RETRY_COUNT = 3
+    private const val BIND_RETRY_DELAY_MS = 600L
 
     // 全局协程作用域
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -121,6 +123,25 @@ object CommandUtil {
         }
     }
 
+    private fun buildServiceIntent(context: Context): Intent {
+        return Intent(context.applicationContext, CommandService::class.java).apply {
+            action = ACTION_BIND
+        }
+    }
+
+    @SuppressLint("ObsoleteSdkInt")
+    private fun startCommandService(context: Context, intent: Intent) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.applicationContext.startForegroundService(intent)
+            } else {
+                context.applicationContext.startService(intent)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "startService 失败: ${e.message}")
+        }
+    }
+
     /**
      * 触发连接 (供 ViewModel 初始化调用)
      */
@@ -149,51 +170,49 @@ object CommandUtil {
 
             handleServiceLost(updateStatus = false)
             connectionDeferred = CompletableDeferred()
-
-            val intent = Intent().apply {
-                action = ACTION_BIND
-                setPackage(PACKAGE_NAME)
-                component = ComponentName(PACKAGE_NAME, "fansirsqi.xposed.sesame.service.CommandService")
-            }
+            val intent = buildServiceIntent(context)
 
             try {
-                // 尝试启动服务
-                try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        context.applicationContext.startForegroundService(intent)
+                repeat(BIND_RETRY_COUNT) { attempt ->
+                    startCommandService(context, intent)
+                    if (attempt > 0) {
+                        delay(BIND_RETRY_DELAY_MS)
                     } else {
-                        context.applicationContext.startService(intent)
+                        delay(300)
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "startService 失败: ${e.message}")
+
+                    val bindResult = context.applicationContext.bindService(
+                        intent,
+                        serviceConnection,
+                        Context.BIND_AUTO_CREATE or Context.BIND_IMPORTANT
+                    )
+
+                    if (bindResult) {
+                        val success = withTimeoutOrNull(BIND_TIMEOUT_MS) {
+                            connectionDeferred?.await()
+                        } ?: false
+
+                        if (success) {
+                            return@withLock true
+                        }
+
+                        Log.w(TAG, "⚠️ 第 ${attempt + 1} 次绑定超时")
+                        try {
+                            context.applicationContext.unbindService(serviceConnection)
+                        } catch (_: Exception) {
+                            // ignore
+                        }
+                        handleServiceLost(updateStatus = false)
+                        connectionDeferred = CompletableDeferred()
+                        return@repeat
+                    }
+
+                    Log.w(TAG, "⚠️ 第 ${attempt + 1} 次 bindService 返回 false")
                 }
 
-                delay(500) // 稍微缩短等待时间
-
-                val bindResult = context.applicationContext.bindService(
-                    intent,
-                    serviceConnection,
-                    Context.BIND_AUTO_CREATE or Context.BIND_IMPORTANT
-                )
-
-                if (!bindResult) {
-                    Log.e(TAG, "❌ bindService 返回 false")
-                    _serviceStatus.value = ServiceStatus.Error("服务绑定失败 (模块未激活?)")
-                    return@withLock false
-                }
-
-                val success = withTimeoutOrNull(BIND_TIMEOUT_MS) {
-                    connectionDeferred?.await()
-                } ?: false
-
-                if (!success) {
-                    Log.e(TAG, "❌ 绑定超时")
-                    // 超时解绑
-                    try { context.applicationContext.unbindService(serviceConnection) } catch (_: Exception) {}
-                    _serviceStatus.value = ServiceStatus.Error("连接超时")
-                }
-
-                return@withLock success
+                Log.e(TAG, "❌ bindService 返回 false")
+                _serviceStatus.value = ServiceStatus.Error("服务绑定失败")
+                return@withLock false
             } catch (e: Exception) {
                 Log.e(TAG, "绑定异常", e)
                 _serviceStatus.value = ServiceStatus.Error(e.message ?: "未知错误")
@@ -234,6 +253,27 @@ object CommandUtil {
             Log.e(TAG, "Cmd Exception", e)
             null
         }
+    }
+
+    /**
+     * 等待服务状态从 Loading 落定，供宿主进程复用与首页一致的执行器状态。
+     */
+    suspend fun awaitServiceStatus(
+        context: Context,
+        timeoutMs: Long = BIND_TIMEOUT_MS + 1500L
+    ): ServiceStatus = withContext(Dispatchers.IO) {
+        if (!ensureServiceBound(context)) {
+            return@withContext _serviceStatus.value
+        }
+
+        val currentStatus = _serviceStatus.value
+        if (currentStatus !is ServiceStatus.Loading) {
+            return@withContext currentStatus
+        }
+
+        return@withContext withTimeoutOrNull(timeoutMs) {
+            serviceStatus.first { it !is ServiceStatus.Loading }
+        } ?: _serviceStatus.value
     }
 
     /**

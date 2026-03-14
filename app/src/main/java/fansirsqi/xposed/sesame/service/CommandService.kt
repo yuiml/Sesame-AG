@@ -181,8 +181,14 @@ class CommandService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // 如果服务被异常杀死，尝试重启
-        return START_STICKY
+        // 命令服务仅用于模块侧 UI / 命令执行，不需要在任务被用户划掉后持续保活。
+        return START_NOT_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.d(TAG, "CommandService onTaskRemoved, stop self")
+        stopSelf()
     }
 
     override fun onDestroy() {
