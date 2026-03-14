@@ -80,6 +80,10 @@ object Credit2101 {
     // 私有变量：用于存放整个选项控件
     private var mCreditOptions: SelectAndCountModelField? = null
 
+    private fun hasEnabledEventOptions(): Boolean {
+        val configMap = mCreditOptions?.value ?: return false
+        return configMap.values.any { (it ?: 0) != 0 }
+    }
 
 
     /** 故事ID数组 */
@@ -235,120 +239,124 @@ object Credit2101 {
             handleUserTasks()
             // 4. 天赋检查
             handleAutoUpgradeTalent()
-            // 5. 获取经纬度 + cityCode
-            val location = resolveLocation(account.cityCode)
-            var currentLat: Double
-            var currentLng: Double
-            val cityCode: String
-            if (location == null) {
-                Log.record(TAG, "信用2101📍[定位失败] 使用北京默认值")
-                cityCode = "110000"
-                currentLat = 39.44 + Math.random() * (41.05 - 39.44)
-                currentLng = 115.42 + Math.random() * (117.50 - 115.42)
-                currentLat = String.format("%.6f", currentLat).toDouble()
-                currentLng = String.format("%.6f", currentLng).toDouble()
-            } else {
-                currentLat = location.latitude
-                currentLng = location.longitude
-                cityCode = location.cityCode
-            }
-            Log.record(
-                TAG,
-                "信用2101📍[定位信息] 城市编码=$cityCode，纬度=$currentLat，经度=$currentLng"
-            )
-
-            // ================== 探测控制参数 ==================
-            val maxLoopCount = 10
-            var currentLoopCount = 0
-
-            val maxShiftCount = 10
-            var shiftCount = 0
-
-            var failExploreCount = 0
 
             handleVisitRecover()        //时段恢复
 
             handleGuardMarkAward()        //检查是否有可领取的印记
 
-            Log.record(TAG, "信用2101🔍[开始探测循环]")
-
-            // ================== 主循环 ==================
-            while (!Thread.currentThread().isInterrupted) {
-                //GlobalThreadPools.sleepCompat(2000)
-
-                // 防死循环保护
-                currentLoopCount++
-                if (currentLoopCount > maxLoopCount) {
-                    Log.record(TAG, "信用2101🔍[结束] 达到最大循环次数($maxLoopCount)")
-                    break
+            if (!hasEnabledEventOptions()) {
+                Log.record(TAG, "信用2101📋[事件] 未启用任何事件类型，跳过定位、探测与事件处理")
+            } else {
+                // 5. 获取经纬度 + cityCode
+                val location = resolveLocation(account.cityCode)
+                var currentLat: Double
+                var currentLng: Double
+                val cityCode: String
+                if (location == null) {
+                    Log.record(TAG, "信用2101📍[定位失败] 使用北京默认值")
+                    cityCode = "110000"
+                    currentLat = 39.44 + Math.random() * (41.05 - 39.44)
+                    currentLng = 115.42 + Math.random() * (117.50 - 115.42)
+                    currentLat = String.format("%.6f", currentLat).toDouble()
+                    currentLng = String.format("%.6f", currentLng).toDouble()
+                } else {
+                    currentLat = location.latitude
+                    currentLng = location.longitude
+                    cityCode = location.cityCode
                 }
-
-                // 刷新账户状态
-                account = queryAccountAsset() ?: run {
-                    Log.error(TAG, "信用2101❌[账户刷新失败] 结束任务")
-                    return
-                }
-
-                if (account.exploreStamina <= 0) {
-                    Log.record(TAG, "信用2101🔍[结束] 探索次数已用完")
-                    break
-                }
-
-                if (account.energyStamina < 5) {
-                    Log.record(
-                        TAG,
-                        "信用2101🔍[结束] 能量不足，不再执行(${account.energyStamina})"
-                    )
-                    break
-                }
-
-                // 1️⃣ 优先处理已有事件
-                val hadDoable = queryAndHandleEvents(
-                    cityCode,
-                    currentLat,
-                    currentLng,
-                    account
-                )
-
-                if (hadDoable) {
-                    // 找到并处理了事件，重置探测/位移计数
-                    failExploreCount = 0
-                    shiftCount = 0
-                    // Log.record("找到并处理了事件")
-                    continue
-                }
-
-                // 2️⃣ 探测新事件
-                val found = exploreOnce(cityCode, currentLat, currentLng)
-
-                if (found) {
-                    // 探测到事件，下轮重新查询处理
-                    failExploreCount = 0
-                    shiftCount = 0
-                    //Log.record("探测到事件")
-                    continue
-                }
-
-                // 3️⃣ 探测失败 → 移动位置
-                failExploreCount++
-
-                val (nLat, nLng) = shiftLocation(currentLat, currentLng)
-                currentLat = nLat
-                currentLng = nLng
-                shiftCount++
-
                 Log.record(
                     TAG,
-                    "信用2101📍[移动位置] 第$shiftCount 次 lat=$currentLat lng=$currentLng (≈±500m)"
+                    "信用2101📍[定位信息] 城市编码=$cityCode，纬度=$currentLat，经度=$currentLng"
                 )
 
-                // 位移次数耗尽才真正退出
-                if (shiftCount >= maxShiftCount) {
+                // ================== 探测控制参数 ==================
+                val maxLoopCount = 10
+                var currentLoopCount = 0
+
+                val maxShiftCount = 10
+                var shiftCount = 0
+
+                var failExploreCount = 0
+                Log.record(TAG, "信用2101🔍[开始探测循环]")
+
+                // ================== 主循环 ==================
+                while (!Thread.currentThread().isInterrupted) {
+                    //GlobalThreadPools.sleepCompat(2000)
+
+                    // 防死循环保护
+                    currentLoopCount++
+                    if (currentLoopCount > maxLoopCount) {
+                        Log.record(TAG, "信用2101🔍[结束] 达到最大循环次数($maxLoopCount)")
+                        break
+                    }
+
+                    // 刷新账户状态
+                    account = queryAccountAsset() ?: run {
+                        Log.error(TAG, "信用2101❌[账户刷新失败] 结束任务")
+                        return
+                    }
+
+                    if (account.exploreStamina <= 0) {
+                        Log.record(TAG, "信用2101🔍[结束] 探索次数已用完")
+                        break
+                    }
+
+                    if (account.energyStamina < 5) {
+                        Log.record(
+                            TAG,
+                            "信用2101🔍[结束] 能量不足，不再执行(${account.energyStamina})"
+                        )
+                        break
+                    }
+
+                    // 1️⃣ 优先处理已有事件
+                    val hadDoable = queryAndHandleEvents(
+                        cityCode,
+                        currentLat,
+                        currentLng,
+                        account
+                    )
+
+                    if (hadDoable) {
+                        // 找到并处理了事件，重置探测/位移计数
+                        failExploreCount = 0
+                        shiftCount = 0
+                        // Log.record("找到并处理了事件")
+                        continue
+                    }
+
+                    // 2️⃣ 探测新事件
+                    val found = exploreOnce(cityCode, currentLat, currentLng)
+
+                    if (found) {
+                        // 探测到事件，下轮重新查询处理
+                        failExploreCount = 0
+                        shiftCount = 0
+                        //Log.record("探测到事件")
+                        continue
+                    }
+
+                    // 3️⃣ 探测失败 → 移动位置
+                    failExploreCount++
+
+                    val (nLat, nLng) = shiftLocation(currentLat, currentLng)
+                    currentLat = nLat
+                    currentLng = nLng
+                    shiftCount++
+
                     Log.record(
                         TAG,
-                        "信用2101🔍[结束] 已移动 $shiftCount 次仍未发现事件"
+                        "信用2101📍[移动位置] 第$shiftCount 次 lat=$currentLat lng=$currentLng (≈±500m)"
                     )
-                    break
+
+                    // 位移次数耗尽才真正退出
+                    if (shiftCount >= maxShiftCount) {
+                        Log.record(
+                            TAG,
+                            "信用2101🔍[结束] 已移动 $shiftCount 次仍未发现事件"
+                        )
+                        break
+                    }
                 }
             }
 

@@ -3,6 +3,7 @@ package fansirsqi.xposed.sesame.task.other
 import fansirsqi.xposed.sesame.entity.OtherEntityProvider.listCreditOptions
 import fansirsqi.xposed.sesame.model.ModelFields
 import fansirsqi.xposed.sesame.model.ModelGroup
+import fansirsqi.xposed.sesame.model.withDesc
 import fansirsqi.xposed.sesame.model.modelFieldExt.BooleanModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.SelectAndCountModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.SelectModelField
@@ -42,12 +43,16 @@ class OtherTask : ModelTask() {
         fields.addField(
             BooleanModelField(
                 "credit2101", "信用2101", false
-            ).apply { credit2101 = this })
+            ).withDesc("开启后执行信用2101的签到、任务领奖、天赋升级，并按下方配置处理探测事件。").also {
+                credit2101 = it
+            })
 
         fields.addField(
             BooleanModelField(
                 "AutoOpenChest", "信用2101 | 自动开宝箱", false
-            ).apply { autoOpenChest = this })
+            ).withDesc("自动打开信用2101中的印记宝箱。需开启“信用2101”主开关。").also {
+                autoOpenChest = it
+            })
 
 
         fields.addField(
@@ -56,7 +61,7 @@ class OtherTask : ModelTask() {
                 "信用2101 | 事件类型",
                 LinkedHashMap<String?, Int?>(),
                 listCreditOptions(),
-                "设置运行次数(-1为不限制)"
+                "设置各事件每日运行次数，0为不执行，-1为不限。"
             ).also {
                 creditOptions = it
             })
