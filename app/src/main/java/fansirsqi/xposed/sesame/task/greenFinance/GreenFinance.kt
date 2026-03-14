@@ -11,6 +11,7 @@ import java.util.TreeMap
 import fansirsqi.xposed.sesame.model.BaseModel
 import fansirsqi.xposed.sesame.model.ModelFields
 import fansirsqi.xposed.sesame.model.ModelGroup
+import fansirsqi.xposed.sesame.model.withDesc
 import fansirsqi.xposed.sesame.model.modelFieldExt.BooleanModelField
 import fansirsqi.xposed.sesame.task.ModelTask
 import fansirsqi.xposed.sesame.task.TaskCommon
@@ -41,13 +42,27 @@ class GreenFinance : ModelTask() {
 
     override fun getFields(): ModelFields {
         val modelFields = ModelFields()
-        modelFields.addField(BooleanModelField("greenFinanceLsxd", "打卡 | 绿色行动", false).also { greenFinanceLsxd = it })
-        modelFields.addField(BooleanModelField("greenFinanceLscg", "打卡 | 绿色采购", false).also { greenFinanceLscg = it })
-        modelFields.addField(BooleanModelField("greenFinanceLsbg", "打卡 | 绿色办公", false).also { greenFinanceLsbg = it })
-        modelFields.addField(BooleanModelField("greenFinanceWdxd", "打卡 | 绿色销售", false).also { greenFinanceWdxd = it })
-        modelFields.addField(BooleanModelField("greenFinanceLswl", "打卡 | 绿色物流", false).also { greenFinanceLswl = it })
-        modelFields.addField(BooleanModelField("greenFinancePointFriend", "收取 | 好友金币", false).also { greenFinancePointFriend = it })
-        modelFields.addField(BooleanModelField("greenFinanceDonation", "捐助 | 快过期金币", false).also { greenFinanceDonation = it })
+        modelFields.addField(BooleanModelField("greenFinanceLsxd", "打卡 | 绿色行动", false).withDesc(
+            "执行绿色经营中绿色行动分类的待打卡项。"
+        ).also { greenFinanceLsxd = it })
+        modelFields.addField(BooleanModelField("greenFinanceLscg", "打卡 | 绿色采购", false).withDesc(
+            "执行绿色经营中绿色采购分类的待打卡项。"
+        ).also { greenFinanceLscg = it })
+        modelFields.addField(BooleanModelField("greenFinanceLsbg", "打卡 | 绿色办公", false).withDesc(
+            "执行绿色经营中绿色办公分类的待打卡项。"
+        ).also { greenFinanceLsbg = it })
+        modelFields.addField(BooleanModelField("greenFinanceWdxd", "打卡 | 绿色销售", false).withDesc(
+            "执行绿色经营中绿色销售分类的待打卡项。"
+        ).also { greenFinanceWdxd = it })
+        modelFields.addField(BooleanModelField("greenFinanceLswl", "打卡 | 绿色物流", false).withDesc(
+            "执行绿色经营中绿色物流分类的待打卡项。"
+        ).also { greenFinanceLswl = it })
+        modelFields.addField(BooleanModelField("greenFinancePointFriend", "收取 | 好友金币", false).withDesc(
+            "巡查好友排行榜并收取可领取的好友金币，每日仅处理一次。"
+        ).also { greenFinancePointFriend = it })
+        modelFields.addField(BooleanModelField("greenFinanceDonation", "捐助 | 快过期金币", false).withDesc(
+            "检测 1 天内将过期的经营金币并自动分批捐助，避免过期失效。"
+        ).also { greenFinanceDonation = it })
         return modelFields
     }
 
