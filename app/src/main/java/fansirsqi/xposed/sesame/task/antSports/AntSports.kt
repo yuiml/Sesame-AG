@@ -481,28 +481,36 @@ class AntSports : ModelTask() {
     }
 
     private fun rememberCurrentDailyStep(originStep: Int) {
-        if (originStep < 0 || Status.hasFlagToday(StatusFlags.FLAG_ANTSPORTS_SYNC_STEP_DONE)) {
+        if (originStep < 0) {
             return
         }
-        if (originStep > cachedOriginDailyStep) {
-            cachedOriginDailyStep = originStep
+        val safeOriginStep = originStep.coerceAtLeast(0)
+        if (cachedTargetDailyStep > 0 && safeOriginStep >= cachedTargetDailyStep) {
+            return
+        }
+        if (safeOriginStep > cachedOriginDailyStep) {
+            cachedOriginDailyStep = safeOriginStep
             cachedTargetDailyStep = -1
         }
     }
 
     private fun resolveTargetDailyStep(originStep: Int): Int {
         val customStep = tmpStepCount()
+        val safeOriginStep = originStep.coerceAtLeast(0)
         if (customStep <= 0) {
-            return originStep.coerceAtLeast(0)
+            return safeOriginStep
         }
-        if (cachedOriginDailyStep < 0 || originStep > cachedOriginDailyStep) {
-            cachedOriginDailyStep = originStep.coerceAtLeast(0)
+        if (cachedTargetDailyStep > 0 && safeOriginStep >= cachedTargetDailyStep) {
+            return safeOriginStep
+        }
+        if (cachedOriginDailyStep < 0 || safeOriginStep > cachedOriginDailyStep) {
+            cachedOriginDailyStep = safeOriginStep
             cachedTargetDailyStep = -1
         }
         if (cachedTargetDailyStep < 0) {
             cachedTargetDailyStep = (cachedOriginDailyStep + customStep).coerceAtMost(100_000)
         }
-        return cachedTargetDailyStep
+        return cachedTargetDailyStep.coerceAtLeast(safeOriginStep)
     }
 
     private fun isSyncStepEnabled(): Boolean {
@@ -523,8 +531,7 @@ class AntSports : ModelTask() {
     }
 
     private fun shouldOverrideDailyStep(originStep: Int, targetStep: Int): Boolean {
-        if (Status.hasFlagToday(StatusFlags.FLAG_ANTSPORTS_SYNC_STEP_DONE) ||
-            targetStep <= 0 ||
+        if (targetStep <= 0 ||
             originStep >= targetStep
         ) {
             return false
