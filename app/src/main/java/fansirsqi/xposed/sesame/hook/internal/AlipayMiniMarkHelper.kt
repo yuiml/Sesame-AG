@@ -1,6 +1,5 @@
 package fansirsqi.xposed.sesame.hook.internal
 
-import de.robv.android.xposed.XposedHelpers
 import fansirsqi.xposed.sesame.util.Log
 
 /**
@@ -10,6 +9,7 @@ import fansirsqi.xposed.sesame.util.Log
 object AlipayMiniMarkHelper {
     private const val TAG = "AlipayMiniMarkHelper"
     private var classLoader: ClassLoader? = null
+
     /**
      * 初始化 AlipayMiniMarkHelper
      * @param loader 应用类加载器
@@ -18,6 +18,7 @@ object AlipayMiniMarkHelper {
         classLoader = loader
         Log.record(TAG, "AlipayMiniMarkHelper 初始化完成")
     }
+
     /**
      * 获取支付宝小程序标记
      * 通过调用 H5HttpUtils.getAlipayMiniMark 方法获取小程序标记
@@ -28,13 +29,19 @@ object AlipayMiniMarkHelper {
      */
     fun getAlipayMiniMark(str: String, str2: String): String {
         try {
-            val h5HttpUtilsClass = XposedHelpers.findClass("com.alipay.mobile.nebula.util.H5HttpUtils", classLoader)
-            val result = XposedHelpers.callStaticMethod(h5HttpUtilsClass, "getAlipayMiniMark", str, str2) as? String
+            val loader = classLoader ?: return ""
+            val h5HttpUtilsClass = Class.forName("com.alipay.mobile.nebula.util.H5HttpUtils", false, loader)
+            val result = h5HttpUtilsClass.getDeclaredMethod(
+                "getAlipayMiniMark",
+                String::class.java,
+                String::class.java
+            ).apply {
+                isAccessible = true
+            }.invoke(null, str, str2) as? String
             return result ?: ""
         } catch (e: Throwable) {
             Log.printStackTrace(TAG, "获取alipayminimark失败: ${e.message}", e)
             return ""
         }
     }
-
 }

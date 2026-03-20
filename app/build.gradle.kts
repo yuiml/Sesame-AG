@@ -34,9 +34,8 @@ android {
         commandLine("git", "rev-list", "--count", "HEAD")
     }.standardOutput.asText.get().trim().toIntOrNull() ?: 1
     defaultConfig {
-        vectorDrawables.useSupportLibrary = true
         applicationId = "fansirsqi.xposed.sesame"
-        minSdk = 26
+        minSdk = 29
         targetSdk = 36
 
         val buildDate = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).apply {
@@ -180,7 +179,6 @@ dependencies {
     implementation(libs.webkit)                     // WebView 组件
 
     // 仅编译时依赖 - Xposed 相关
-    compileOnly(files("libs/api-82.jar"))          // 仅提供 XposedHelpers/XposedBridge 等旧 helper 的编译期符号，非 82 运行入口
     compileOnly(libs.libxposed.api)                // Xposed API 101 https://github.com/libxposed/api
     implementation(libs.libxposed.service)         // https://github.com/libxposed/service
 

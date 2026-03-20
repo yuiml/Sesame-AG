@@ -1,6 +1,5 @@
 package fansirsqi.xposed.sesame.hook.rpc.bridge
 
-import de.robv.android.xposed.XposedHelpers
 import fansirsqi.xposed.sesame.data.General
 import fansirsqi.xposed.sesame.entity.RpcEntity
 import fansirsqi.xposed.sesame.hook.rpc.intervallimit.RpcIntervalLimit
@@ -28,11 +27,64 @@ private fun truncateForLog(value: String?, limit: Int): String {
 
 private fun getErrorValueAsString(obj: Any, key: String): String {
     return runCatching {
-        XposedHelpers.callMethod(obj, "getString", key) as? String
+        callMethod(obj, "getString", key) as? String
     }.getOrNull()?.takeIf { it.isNotBlank() }
         ?: runCatching {
-            XposedHelpers.callMethod(obj, "get", key)?.toString()
+            callMethod(obj, "get", key)?.toString()
         }.getOrNull().orEmpty()
+}
+
+private fun loadClass(classLoader: ClassLoader, className: String): Class<*> {
+    return Class.forName(className, false, classLoader)
+}
+
+private fun callMethod(target: Any, name: String, vararg args: Any?): Any? {
+    return findCompatibleMethod(target.javaClass, name, *args).invoke(target, *args)
+}
+
+private fun callStaticMethod(targetClass: Class<*>, name: String, vararg args: Any?): Any? {
+    return findCompatibleMethod(targetClass, name, *args).invoke(null, *args)
+}
+
+private fun findCompatibleMethod(targetClass: Class<*>, name: String, vararg args: Any?): Method {
+    val candidates = linkedSetOf<Method>()
+    candidates.addAll(targetClass.methods)
+    var current: Class<*>? = targetClass
+    while (current != null) {
+        candidates.addAll(current.declaredMethods)
+        current = current.superclass
+    }
+    return candidates.firstOrNull { method ->
+        method.name == name &&
+            method.parameterCount == args.size &&
+            method.parameterTypes.indices.all { index ->
+                isArgumentCompatible(method.parameterTypes[index], args[index])
+            }
+    }?.apply {
+        isAccessible = true
+    } ?: throw NoSuchMethodException("${targetClass.name}#$name(${args.size})")
+}
+
+private fun isArgumentCompatible(parameterType: Class<*>, argument: Any?): Boolean {
+    if (argument == null) {
+        return !parameterType.isPrimitive
+    }
+    return boxType(parameterType).isAssignableFrom(boxType(argument.javaClass))
+}
+
+private fun boxType(type: Class<*>): Class<*> {
+    return when (type) {
+        java.lang.Boolean.TYPE -> java.lang.Boolean::class.java
+        java.lang.Byte.TYPE -> java.lang.Byte::class.java
+        java.lang.Character.TYPE -> java.lang.Character::class.java
+        java.lang.Short.TYPE -> java.lang.Short::class.java
+        java.lang.Integer.TYPE -> java.lang.Integer::class.java
+        java.lang.Long.TYPE -> java.lang.Long::class.java
+        java.lang.Float.TYPE -> java.lang.Float::class.java
+        java.lang.Double.TYPE -> java.lang.Double::class.java
+        java.lang.Void.TYPE -> java.lang.Void::class.java
+        else -> type
+    }
 }
 
 /**
@@ -164,11 +216,12 @@ class NewRpcBridge : RpcBridge {
         }
         
         try {
-            val service = XposedHelpers.callStaticMethod(
-                XposedHelpers.findClass("com.alipay.mobile.nebulacore.Nebula", classLoader),
+            val service = callStaticMethod(
+                loadClass(classLoader, "com.alipay.mobile.nebulacore.Nebula"),
                 "getService"
             )
-            val extensionManager = XposedHelpers.callMethod(service, "getExtensionManager")
+            val extensionManager = service?.let { callMethod(it, "getExtensionManager") }
+                ?: throw RuntimeException("getExtensionManager is null")
             val getExtensionByName = extensionManager.javaClass.getDeclaredMethod(
                 "createExtensionInstance",
                 Class::class.java
@@ -180,7 +233,7 @@ class NewRpcBridge : RpcBridge {
             )
 
             if (newRpcInstance == null) {
-                val nodeExtensionMap = XposedHelpers.callMethod(extensionManager, "getNodeExtensionMap")
+                val nodeExtensionMap = callMethod(extensionManager, "getNodeExtensionMap")
                 if (nodeExtensionMap != null) {
                     @Suppress("UNCHECKED_CAST")
                     val map = nodeExtensionMap as Map<Any, Map<String, Any>>
@@ -330,12 +383,12 @@ class NewRpcBridge : RpcBridge {
                                             // 获取JSON字符串，失败时重试一次
                                             var jsonString: String? = null
                                             try {
-                                                jsonString = XposedHelpers.callMethod(obj, "toJSONString") as String
+                                                jsonString = callMethod(obj, "toJSONString") as String
                                             } catch (e: Exception) {
                                                 // 第一次失败，尝试重试
                                                 try {
                                                     GlobalThreadPools.sleepCompat(100L)
-                                                    jsonString = XposedHelpers.callMethod(obj, "toJSONString") as String
+                                                    jsonString = callMethod(obj, "toJSONString") as String
                                                 } catch (retryException: Exception) {
                                                     // 重试后仍失败，记录日志并标记错误，触发外层RPC重试
                                                     Log.runtime(TAG, "toJSONString 重试后仍然失败，将触发整个 RPC 请求重试: ${retryException.message}")
@@ -346,8 +399,8 @@ class NewRpcBridge : RpcBridge {
                                             }
 
                                             rpcEntity.setResponseObject(obj, jsonString)
-                                            if (!(XposedHelpers.callMethod(obj, "containsKey", "success") as Boolean) &&
-                                                !(XposedHelpers.callMethod(obj, "containsKey", "isSuccess") as Boolean)
+                                            if (!(callMethod(obj, "containsKey", "success") as Boolean) &&
+                                                !(callMethod(obj, "containsKey", "isSuccess") as Boolean)
                                             ) {
                                                 rpcEntity.setError()
                                                 val methodName = rpcEntity.requestMethod ?: "unknown"

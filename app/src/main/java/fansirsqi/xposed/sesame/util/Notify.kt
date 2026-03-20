@@ -73,13 +73,11 @@ object Notify {
                 val it = Intent(Intent.ACTION_VIEW)
                 it.setData("alipays://platformapi/startapp?appId=".toUri())
                 val pi = PendingIntent.getActivity(context, 0, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    val notificationChannel = NotificationChannel(CHANNEL_ID, "🔔 芝麻粒能量提醒", NotificationManager.IMPORTANCE_LOW)
-                    notificationChannel.enableLights(false)
-                    notificationChannel.enableVibration(false)
-                    notificationChannel.setShowBadge(false)
-                    mNotifyManager!!.createNotificationChannel(notificationChannel)
-                }
+                val notificationChannel = NotificationChannel(CHANNEL_ID, "🔔 芝麻粒能量提醒", NotificationManager.IMPORTANCE_LOW)
+                notificationChannel.enableLights(false)
+                notificationChannel.enableVibration(false)
+                notificationChannel.setShowBadge(false)
+                mNotifyManager!!.createNotificationChannel(notificationChannel)
                 builder = NotificationCompat.Builder(context, CHANNEL_ID)
                     .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
                     .setSmallIcon(android.R.drawable.sym_def_app_icon)
@@ -111,11 +109,7 @@ object Notify {
                 return
             }
             if (context is Service) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    (context as Service).stopForeground(Service.STOP_FOREGROUND_REMOVE)
-                } else {
-                    (context as Service).stopSelf()
-                }
+                (context as Service).stopForeground(Service.STOP_FOREGROUND_REMOVE)
             }
             NotificationManagerCompat.from(context!!).cancel(NOTIFICATION_ID)
             mNotifyManager = null
@@ -261,10 +255,8 @@ object Notify {
             }
             if (!checkPermission(context!!) || !isNotificationStarted) return
             mNotifyManager = context!!.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager?
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val notificationChannel = NotificationChannel(CHANNEL_ID, "‼️ 芝麻粒异常通知", NotificationManager.IMPORTANCE_LOW)
-                mNotifyManager!!.createNotificationChannel(notificationChannel)
-            }
+            val notificationChannel = NotificationChannel(CHANNEL_ID, "‼️ 芝麻粒异常通知", NotificationManager.IMPORTANCE_LOW)
+            mNotifyManager!!.createNotificationChannel(notificationChannel)
             val errorBuilder = NotificationCompat.Builder(context!!, CHANNEL_ID)
                 .setCategory(NotificationCompat.CATEGORY_ERROR)
                 .setSmallIcon(android.R.drawable.sym_def_app_icon)

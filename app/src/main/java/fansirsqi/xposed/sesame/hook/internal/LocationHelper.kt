@@ -1,6 +1,5 @@
 package fansirsqi.xposed.sesame.hook.internal
 
-import de.robv.android.xposed.XposedHelpers
 import fansirsqi.xposed.sesame.util.DataStore
 import fansirsqi.xposed.sesame.util.Log
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -39,19 +38,27 @@ object LocationHelper {
     }
 
     /**
-     * ✅ 新增：挂起函数版本 (推荐 Kotlin 使用)
+     * ? 新增：挂起函数版本 (推荐 Kotlin 使用)
      * 在后台线程获取位置并返回结果，自动切回原线程
      */
     suspend fun requestLocationSuspend(): JSONObject = withContext(Dispatchers.Default) {
         try {
-            if (classLoader == null) {
+            val loader = classLoader
+            if (loader == null) {
                 return@withContext createAndSaveError("ClassLoader 未初始化")
             }
 
-            // 执行反射调用 (耗时操作)
-            val lnsctrUtilsClass = XposedHelpers.findClass("com.alipay.mobile.common.lnsctr.LnsctrUtils", classLoader)
-            val latitude = XposedHelpers.callStaticMethod(lnsctrUtilsClass, "getLatitude") as? Double
-            val longitude = XposedHelpers.callStaticMethod(lnsctrUtilsClass, "getLongitude") as? Double
+            val lnsctrUtilsClass = Class.forName(
+                "com.alipay.mobile.common.lnsctr.LnsctrUtils",
+                false,
+                loader
+            )
+            val latitude = lnsctrUtilsClass.getDeclaredMethod("getLatitude").apply {
+                isAccessible = true
+            }.invoke(null) as? Double
+            val longitude = lnsctrUtilsClass.getDeclaredMethod("getLongitude").apply {
+                isAccessible = true
+            }.invoke(null) as? Double
 
             if (latitude != null && longitude != null) {
                 val locationMap = mapOf(

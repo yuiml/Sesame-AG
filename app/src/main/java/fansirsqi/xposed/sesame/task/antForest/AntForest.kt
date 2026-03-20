@@ -1,7 +1,6 @@
 package fansirsqi.xposed.sesame.task.antForest
 
 import android.annotation.SuppressLint
-import de.robv.android.xposed.XposedHelpers
 import fansirsqi.xposed.sesame.data.RuntimeInfo
 import fansirsqi.xposed.sesame.data.Status
 import fansirsqi.xposed.sesame.data.StatusFlags
@@ -3063,11 +3062,11 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 }
 
                 if (rpcEntity.hasError) {
-                    val errorCode = XposedHelpers.callMethod(
-                        rpcEntity.responseObject,
-                        "getString",
-                        "error"
-                    ) as String?
+                    val errorCode = runCatching {
+                        val responseObject = rpcEntity.responseObject ?: return@runCatching null
+                        responseObject.javaClass.getMethod("getString", String::class.java)
+                            .invoke(responseObject, "error") as? String
+                    }.getOrNull()
                     if ("1004" == errorCode) {
                         val waitWhenExceptionMs = (BaseModel.waitWhenException.value ?: 0).toLong()
                         if (waitWhenExceptionMs > 0) {
@@ -3772,7 +3771,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 }
                 if (touched) {
                     val displayAwardCount = if (provideRightsNum > 0) provideRightsNum else task.awardCount
-                    Log.forest("森林累计奖励???[${task.taskTitle}]# $displayAwardCount")
+                    Log.forest("森林累计奖励🏆[${task.taskTitle}]# $displayAwardCount")
                 }
             }
         }

@@ -1,11 +1,9 @@
 package fansirsqi.xposed.sesame.util
 
-import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
-import android.os.Build
 import android.os.IBinder
 import android.os.RemoteException
 import fansirsqi.xposed.sesame.ICallback
@@ -129,14 +127,9 @@ object CommandUtil {
         }
     }
 
-    @SuppressLint("ObsoleteSdkInt")
     private fun startCommandService(context: Context, intent: Intent) {
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.applicationContext.startForegroundService(intent)
-            } else {
-                context.applicationContext.startService(intent)
-            }
+            context.applicationContext.startForegroundService(intent)
         } catch (e: Exception) {
             Log.w(TAG, "startService 失败: ${e.message}")
         }
@@ -154,7 +147,6 @@ object CommandUtil {
     /**
      * 绑定服务 (线程安全)
      */
-    @SuppressLint("ObsoleteSdkInt")
     private suspend fun ensureServiceBound(context: Context): Boolean {
         if (isBound.get() && commandService?.asBinder()?.isBinderAlive == true) {
             return true

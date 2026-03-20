@@ -2,7 +2,6 @@ package fansirsqi.xposed.sesame
 
 import android.app.Application
 import android.content.Intent
-import android.os.Build
 import fansirsqi.xposed.sesame.service.CommandService
 import fansirsqi.xposed.sesame.ui.theme.ThemeManager
 import fansirsqi.xposed.sesame.util.Log
@@ -36,11 +35,7 @@ class SesameApplication : Application() {
     private fun startCommandService() {
         try {
             val intent = Intent(this, CommandService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent)
-            } else {
-                startService(intent)
-            }
+            startForegroundService(intent)
             Log.record(TAG, "✅ CommandService 已启动")
         } catch (e: Exception) {
             Log.printStackTrace(TAG, "❌ CommandService 启动失败:", e)

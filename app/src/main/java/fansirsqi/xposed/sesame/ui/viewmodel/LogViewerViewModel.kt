@@ -2,7 +2,6 @@ package fansirsqi.xposed.sesame.ui.viewmodel
 
 import android.app.Application
 import android.content.Context
-import android.os.Build
 import android.os.FileObserver
 import android.util.LruCache
 import androidx.core.content.edit
@@ -261,27 +260,11 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun startFileObserver(path: String) {
         val file = File(path)
-        val parentPath = file.parent ?: return
         fileObserver?.stopWatching()
         val eventMask = FileObserver.MODIFY or FileObserver.CREATE
-        val observerFile = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) file else File(parentPath)
-
-        val onFileEvent: (String?) -> Unit = { p ->
-            val eventFileName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) null else p
-            if (eventFileName == null || eventFileName == file.name) {
-                // ✅ 触发防抖更新
+        fileObserver = object : FileObserver(file, eventMask) {
+            override fun onEvent(event: Int, p: String?) {
                 triggerDebouncedUpdate()
-            }
-        }
-
-        fileObserver = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            object : FileObserver(observerFile, eventMask) {
-                override fun onEvent(event: Int, p: String?) { onFileEvent(p) }
-            }
-        } else {
-            @Suppress("DEPRECATION")
-            object : FileObserver(observerFile.absolutePath, eventMask) {
-                override fun onEvent(event: Int, p: String?) { onFileEvent(p) }
             }
         }
         fileObserver?.startWatching()

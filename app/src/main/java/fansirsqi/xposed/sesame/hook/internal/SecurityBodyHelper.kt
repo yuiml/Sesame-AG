@@ -1,8 +1,9 @@
 package fansirsqi.xposed.sesame.hook.internal
 
-import de.robv.android.xposed.XposedHelpers
+import android.content.Context
 import fansirsqi.xposed.sesame.hook.ApplicationHook
 import fansirsqi.xposed.sesame.util.Log
+import java.util.HashMap
 
 /**
  * 安全组件数据获取助手类
@@ -32,46 +33,58 @@ object SecurityBodyHelper {
      */
     fun getSecurityBodyData(type: Int): String? {
         try {
-            // 检查是否已初始化
-            if (classLoader == null) {
+            val loader = classLoader
+            if (loader == null) {
                 Log.error(TAG, "SecurityBodyHelper 未初始化，请先调用 init 方法")
                 return null
             }
 
-            // 使用 appContext 作为上下文
             val appContext = ApplicationHook.appContext
             if (appContext == null) {
                 Log.error(TAG, "appContext 为 null，可能应用还未完全启动，请稍后再试")
                 return null
             }
-            // 获取 SecurityGuardManager 实例
-            val securityGuardManager = XposedHelpers.callStaticMethod(
-                XposedHelpers.findClass("com.alibaba.wireless.security.open.SecurityGuardManager", classLoader),
+
+            val securityGuardManagerClass = Class.forName(
+                "com.alibaba.wireless.security.open.SecurityGuardManager",
+                false,
+                loader
+            )
+            val securityGuardManager = securityGuardManagerClass.getDeclaredMethod(
                 "getInstance",
-                appContext
-            ) ?: run {
+                Context::class.java
+            ).apply {
+                isAccessible = true
+            }.invoke(null, appContext) ?: run {
                 Log.error(TAG, "无法获取 SecurityGuardManager 实例")
                 return null
             }
 
-            // 获取 ISecurityBodyComponent 实例
-            val securityBodyComponent = XposedHelpers.callMethod(
-                securityGuardManager,
+            val securityBodyComponent = securityGuardManager.javaClass.getDeclaredMethod(
                 "getSecurityBodyComp"
-            ) ?: run {
+            ).apply {
+                isAccessible = true
+            }.invoke(securityGuardManager) ?: run {
                 Log.error(TAG, "无法获取 ISecurityBodyComponent 实例")
                 return null
             }
 
-            // 调用 getSecurityBodyDataEx 方法，参数与 SecurityBodyWuaBridgeExtension 中完全一致
-            // getSecurityBodyDataEx((String) null, (String) null, "", (HashMap) null, type, 0)
-            val result = XposedHelpers.callMethod(
-                securityBodyComponent,
+            val result = securityBodyComponent.javaClass.getDeclaredMethod(
                 "getSecurityBodyDataEx",
-                null as String?,
-                null as String?,
+                String::class.java,
+                String::class.java,
+                String::class.java,
+                HashMap::class.java,
+                Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType
+            ).apply {
+                isAccessible = true
+            }.invoke(
+                securityBodyComponent,
+                null,
+                null,
                 "",
-                null as HashMap<String, String>?,
+                null,
                 type,
                 0
             ) as? String
@@ -83,9 +96,8 @@ object SecurityBodyHelper {
                 null
             }
         } catch (e: Throwable) {
-            Log.printStackTrace(TAG, "获取安全组件数据失败: ${e.message}",e)
+            Log.printStackTrace(TAG, "获取安全组件数据失败: ${e.message}", e)
             return null
         }
     }
-
 }

@@ -9,15 +9,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageInfo
+import android.content.SharedPreferences
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import androidx.core.content.ContextCompat
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XSharedPreferences
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
 import fansirsqi.xposed.sesame.BuildConfig
 import fansirsqi.xposed.sesame.SesameApplication
 import fansirsqi.xposed.sesame.data.Config
@@ -84,8 +81,6 @@ import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
 import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam
 import java.io.File
 import java.lang.AutoCloseable
-import java.lang.reflect.InvocationTargetException
-import java.lang.reflect.Member
 import java.lang.reflect.Method
 import java.util.Calendar
 import kotlinx.coroutines.Dispatchers
@@ -94,6 +89,10 @@ import kotlin.concurrent.Volatile
 
 class ApplicationHook {
     var xposedInterface: XposedInterface? = null
+        set(value) {
+            field = value
+            frameworkInterface = value
+        }
 
     private class TaskLock : AutoCloseable {
         private val acquired: Boolean
@@ -121,7 +120,7 @@ class ApplicationHook {
     // --- 入口方法 ---
     fun loadPackage(lpparam: PackageLoadedParam) {
         if (General.PACKAGE_NAME != lpparam.packageName) return
-        val packageClassLoader = extractLegacyPackageClassLoader(lpparam) ?: run {
+        val packageClassLoader = extractPackageClassLoader(lpparam) ?: run {
             record(TAG, "跳过 onPackageLoaded：当前回调未提供可用的 app classloader")
             return
         }
@@ -147,8 +146,11 @@ class ApplicationHook {
     private fun handleHookLogic(loader: ClassLoader?, packageName: String, apkPath: String, rawParam: Any?) {
         classLoader = loader
         // 1. 初始化配置读取
-        val prefs = XSharedPreferences(General.MODULE_PACKAGE_NAME, SesameApplication.PREFERENCES_KEY)
-        prefs.makeWorldReadable()
+        remotePreferences = runCatching {
+            requireXposedInterface().getRemotePreferences(SesameApplication.PREFERENCES_KEY)
+        }.onFailure {
+            logFramework(android.util.Log.WARN, "读取远程偏好失败: ${it.message}", it)
+        }.getOrNull()
 
         // 2. 进程检查
         resolveProcessName(rawParam)
@@ -179,12 +181,20 @@ class ApplicationHook {
         }
     }
 
-    private fun extractLegacyPackageClassLoader(param: PackageLoadedParam): ClassLoader? {
+    private fun extractPackageClassLoader(param: PackageLoadedParam): ClassLoader? {
         return runCatching {
-            param.javaClass.methods
-                .firstOrNull { it.name == "getClassLoader" && it.parameterCount == 0 }
-                ?.invoke(param) as? ClassLoader
+            param.defaultClassLoader
         }.getOrNull()
+            ?: runCatching {
+                param.javaClass.methods
+                    .firstOrNull { it.name == "getDefaultClassLoader" && it.parameterCount == 0 }
+                    ?.invoke(param) as? ClassLoader
+            }.getOrNull()
+            ?: runCatching {
+                param.javaClass.methods
+                    .firstOrNull { it.name == "getClassLoader" && it.parameterCount == 0 }
+                    ?.invoke(param) as? ClassLoader
+            }.getOrNull()
     }
 
     private fun shouldHookProcess(): Boolean {
@@ -195,8 +205,8 @@ class ApplicationHook {
 
     private fun initReflection(loader: ClassLoader) {
         try {
-            XposedHelpers.findClass(ApplicationHookConstants.AlipayClasses.APPLICATION, loader)
-            XposedHelpers.findClass(ApplicationHookConstants.AlipayClasses.SOCIAL_SDK, loader)
+            loadClass(loader, ApplicationHookConstants.AlipayClasses.APPLICATION)
+            loadClass(loader, ApplicationHookConstants.AlipayClasses.SOCIAL_SDK)
         } catch (_: Throwable) {
             // ignore
         }
@@ -211,30 +221,26 @@ class ApplicationHook {
 
     private fun hookApplicationAttach(packageName: String?) {
         try {
-            XposedHelpers.findAndHookMethod(
-                Application::class.java,
-                "attach",
-                Context::class.java,
-                object : XC_MethodHook() {
-                    @Throws(Throwable::class)
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        appContext = param.args[0] as Context?
-                        mainHandler = Handler(Looper.getMainLooper())
-                        Log.init(appContext!!)
-                        ensureScheduler()
+            val attachMethod = findMethod(Application::class.java, "attach", Context::class.java)
+            requireXposedInterface().hook(attachMethod).intercept { chain ->
+                val result = chain.proceed()
+                val context = chain.args[0] as? Context ?: return@intercept result
+                appContext = context
+                mainHandler = Handler(Looper.getMainLooper())
+                Log.init(context)
+                ensureScheduler()
 
-                        SecurityBodyHelper.init(classLoader!!)
-                        AlipayMiniMarkHelper.init(classLoader!!)
-                        LocationHelper.init(classLoader!!)
-                        AuthCodeHelper.init(classLoader!!)
+                SecurityBodyHelper.init(classLoader!!)
+                AlipayMiniMarkHelper.init(classLoader!!)
+                LocationHelper.init(classLoader!!)
+                AuthCodeHelper.init(classLoader!!)
 
-                        initVersionInfo(packageName)
-                        // 特殊版本处理
-                        if (VersionHook.hasVersion() && alipayVersion.compareTo(AlipayVersion("10.7.26.8100")) == 0) {
-                            HookUtil.bypassAccountLimit(classLoader!!)
-                        }
-                    }
-                })
+                initVersionInfo(packageName)
+                if (VersionHook.hasVersion() && alipayVersion.compareTo(AlipayVersion("10.7.26.8100")) == 0) {
+                    HookUtil.bypassAccountLimit(classLoader!!)
+                }
+                result
+            }
         } catch (e: Exception) {
             Log.printStackTrace(TAG, "Hook attach failed", e)
         }
@@ -242,13 +248,11 @@ class ApplicationHook {
 
     private fun hookLauncherResume() {
         try {
-            XposedHelpers.findAndHookMethod(
-                ApplicationHookConstants.AlipayClasses.LAUNCHER_ACTIVITY,
-                classLoader,
-                "onResume",
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam?) {
-                        ApplicationHookConstants.submitEntry("launcher_onResume") {
+            val launcherClass = loadClass(classLoader!!, ApplicationHookConstants.AlipayClasses.LAUNCHER_ACTIVITY)
+            val onResumeMethod = findMethod(launcherClass, "onResume")
+            requireXposedInterface().hook(onResumeMethod).intercept { chain ->
+                val result = chain.proceed()
+                ApplicationHookConstants.submitEntry("launcher_onResume") {
                             val targetUid = HookUtil.getUserId(classLoader!!) ?: run {
                                 show("用户未登录")
                                 return@submitEntry
@@ -391,9 +395,9 @@ class ApplicationHook {
                                     )
                                 )
                             }
-                        }
-                    }
-                })
+                }
+                result
+            }
         } catch (t: Throwable) {
             printStackTrace(TAG, "Hook Launcher failed", t)
         }
@@ -405,13 +409,11 @@ class ApplicationHook {
      */
     private fun hookLoginResume() {
         try {
-            XposedHelpers.findAndHookMethod(
-                General.CURRENT_USING_ACTIVITY,
-                classLoader,
-                "onResume",
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam?) {
-                        ApplicationHookConstants.submitEntry("login_onResume") {
+            val loginActivityClass = loadClass(classLoader!!, General.CURRENT_USING_ACTIVITY)
+            val onResumeMethod = findMethod(loginActivityClass, "onResume")
+            requireXposedInterface().hook(onResumeMethod).intercept { chain ->
+                val result = chain.proceed()
+                ApplicationHookConstants.submitEntry("login_onResume") {
                             if (!init) return@submitEntry
                             if (!ApplicationHookConstants.isOffline()) return@submitEntry
 
@@ -498,9 +500,9 @@ class ApplicationHook {
                                     dedupeKey = dedupeKey
                                 )
                             )
-                        }
-                    }
-                })
+                }
+                result
+            }
         } catch (t: Throwable) {
             printStackTrace(TAG, "Hook Login failed", t)
         }
@@ -508,36 +510,39 @@ class ApplicationHook {
 
     private fun hookServiceLifecycle(apkPath: String) {
         try {
-            XposedHelpers.findAndHookMethod(ApplicationHookConstants.AlipayClasses.SERVICE, classLoader, "onCreate", object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam) {
-                    val appService = param.thisObject as Service
-                    if (General.CURRENT_USING_SERVICE != appService.javaClass.getCanonicalName()) {
-                        return
-                    }
-
-                    service = appService
-                    appContext = appService.applicationContext
-                    ensureScheduler()
-
-                    ensureMainTask()
-                    dayCalendar = Calendar.getInstance()
-                    val initReason = pendingInitReason ?: "service_onCreate"
-                    if (!init || pendingInit) {
-                        if (initHandler(initReason)) {
-                            init = true
-                        }
-                    } else {
-                        // 已经初始化过，避免重复初始化导致重复 Toast、重置线程池等副作用
-                        pendingInit = false
-                        pendingInitReason = null
-                    }
+            val serviceClass = loadClass(classLoader!!, ApplicationHookConstants.AlipayClasses.SERVICE)
+            val onCreateMethod = findMethod(serviceClass, "onCreate")
+            requireXposedInterface().hook(onCreateMethod).intercept { chain ->
+                val result = chain.proceed()
+                val appService = chain.getThisObject() as? Service ?: return@intercept result
+                if (General.CURRENT_USING_SERVICE != appService.javaClass.getCanonicalName()) {
+                    return@intercept result
                 }
-            })
 
-            XposedHelpers.findAndHookMethod(ApplicationHookConstants.AlipayClasses.SERVICE, classLoader, "onDestroy", object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam) {
-                    val s = param.thisObject as Service
-                    if (General.CURRENT_USING_SERVICE == s.javaClass.getCanonicalName()) {
+                service = appService
+                appContext = appService.applicationContext
+                ensureScheduler()
+
+                ensureMainTask()
+                dayCalendar = Calendar.getInstance()
+                val initReason = pendingInitReason ?: "service_onCreate"
+                if (!init || pendingInit) {
+                    if (initHandler(initReason)) {
+                        init = true
+                    }
+                } else {
+                    // 已经初始化过，避免重复初始化导致重复 Toast、重置线程池等副作用
+                    pendingInit = false
+                    pendingInitReason = null
+                }
+                result
+            }
+
+            val onDestroyMethod = findMethod(serviceClass, "onDestroy")
+            requireXposedInterface().hook(onDestroyMethod).intercept { chain ->
+                val result = chain.proceed()
+                val s = chain.getThisObject() as? Service ?: return@intercept result
+                if (General.CURRENT_USING_SERVICE == s.javaClass.getCanonicalName()) {
                         // TODO: 目前观察到用户手动划掉支付宝后台时，也会走到这里。
                         // 如果直接 restartByBroadcast()/reOpenApp()，会把“用户主动退出”误判成“异常退出需要恢复”，
                         // 进而出现支付宝/模块后台被反复复活的问题。后续可增加独立配置开关，
@@ -548,8 +553,8 @@ class ApplicationHook {
                         mainTask = null
                         record(TAG, "🛑 目标应用前台服务已销毁，停止当前模块运行，不再自动重启目标应用")
                     }
-                }
-            })
+                result
+            }
         } catch (t: Throwable) {
             printStackTrace(TAG, "Hook Service failed", t)
         }
@@ -859,9 +864,6 @@ class ApplicationHook {
         @Volatile
         var nextExecutionTime: Long = 0
 
-        // Deoptimize 方法缓存
-        private val deoptimizeMethod: Method?
-
         private val appVisibilityCallbacks = object : ComponentCallbacks2 {
             override fun onTrimMemory(level: Int) {
                 if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
@@ -880,12 +882,6 @@ class ApplicationHook {
         init {
             dayCalendar = Calendar.getInstance()
             ApplicationHookUtils.resetToMidnight(dayCalendar!!)
-            var m: Method? = null
-            try {
-                m = XposedBridge::class.java.getDeclaredMethod("deoptimizeMethod", Member::class.java)
-            } catch (_: Throwable) {
-            }
-            deoptimizeMethod = m
         }
 
         private suspend fun runMainTaskLogic() = withContext(Dispatchers.IO) {
@@ -942,12 +938,10 @@ class ApplicationHook {
             }
         }
 
-        @Throws(InvocationTargetException::class, IllegalAccessException::class)
         fun deoptimizeClass(c: Class<*>) {
-            if (deoptimizeMethod == null) return
             for (m in c.getDeclaredMethods()) {
                 if (m.name == "makeApplicationInner") {
-                    deoptimizeMethod.invoke(null, m)
+                    frameworkInterface?.deoptimize(m)
                 }
             }
         }
@@ -1367,6 +1361,44 @@ class ApplicationHook {
             } finally {
                 appVisibilityCallbacksRegistered = false
                 hostAppWentBackground = false
+            }
+        }
+
+        @Volatile
+        private var frameworkInterface: XposedInterface? = null
+
+        @Volatile
+        private var remotePreferences: SharedPreferences? = null
+
+        internal fun requireXposedInterface(): XposedInterface {
+            return frameworkInterface ?: throw IllegalStateException("XposedInterface 未初始化")
+        }
+
+        private fun loadClass(loader: ClassLoader, className: String): Class<*> {
+            return Class.forName(className, false, loader)
+        }
+
+        private fun findMethod(targetClass: Class<*>, name: String, vararg parameterTypes: Class<*>): Method {
+            var current: Class<*>? = targetClass
+            while (current != null) {
+                runCatching {
+                    return current.getDeclaredMethod(name, *parameterTypes).apply {
+                        isAccessible = true
+                    }
+                }
+                current = current.superclass
+            }
+            return targetClass.getMethod(name, *parameterTypes).apply {
+                isAccessible = true
+            }
+        }
+
+        private fun logFramework(priority: Int, message: String, throwable: Throwable? = null) {
+            val logger = frameworkInterface ?: return
+            if (throwable != null) {
+                logger.log(priority, TAG, message, throwable)
+            } else {
+                logger.log(priority, TAG, message)
             }
         }
     }

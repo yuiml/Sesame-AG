@@ -1,9 +1,7 @@
 package fansirsqi.xposed.sesame.hook.lsp100
 
 import android.content.pm.ApplicationInfo
-import android.os.Build
-import androidx.annotation.RequiresApi
-import de.robv.android.xposed.XposedBridge
+import android.util.Log
 import fansirsqi.xposed.sesame.data.General
 import fansirsqi.xposed.sesame.hook.ApplicationHook
 import fansirsqi.xposed.sesame.hook.XposedEnv
@@ -28,21 +26,19 @@ class HookEntry() : XposedModule() {
         initialize(this, param.processName)
     }
 
-    @RequiresApi(Build.VERSION_CODES.Q)
     override fun onPackageLoaded(param: PackageLoadedParam) {
         try {
             if (!shouldHandlePackage(param.packageName)) return
-            val legacyClassLoader = extractLegacyPackageClassLoader(param)
-            if (legacyClassLoader == null) {
-                XposedBridge.log("$tag: onPackageLoaded ${param.packageName} only exposes default classloader, waiting for onPackageReady")
+            val packageClassLoader = extractPackageClassLoader(param)
+            if (packageClassLoader == null) {
+                logInfo("onPackageLoaded ${param.packageName} did not expose a usable default classloader, waiting for onPackageReady")
                 return
             }
-            prepareEnv(param.packageName, param.applicationInfo, legacyClassLoader)
+            prepareEnv(param.packageName, param.applicationInfo, packageClassLoader)
             customHooker.loadPackage(param)
-            XposedBridge.log("$tag: Hooking ${param.packageName} in process $processName via onPackageLoaded")
+            logInfo("Hooking ${param.packageName} in process $processName via onPackageLoaded")
         } catch (e: Throwable) {
-            XposedBridge.log("$tag: Hook failed - ${e.message}")
-            XposedBridge.log(e)
+            logError("Hook failed - ${e.message}", e)
         }
     }
 
@@ -51,10 +47,9 @@ class HookEntry() : XposedModule() {
             if (!shouldHandlePackage(param.packageName)) return
             prepareEnv(param.packageName, param.applicationInfo, param.classLoader)
             customHooker.loadPackage(param)
-            XposedBridge.log("$tag: Hooking ${param.packageName} in process $processName via onPackageReady")
+            logInfo("Hooking ${param.packageName} in process $processName via onPackageReady")
         } catch (e: Throwable) {
-            XposedBridge.log("$tag: Hook failed - ${e.message}")
-            XposedBridge.log(e)
+            logError("Hook failed - ${e.message}", e)
         }
     }
 
@@ -64,14 +59,15 @@ class HookEntry() : XposedModule() {
         this.processName = processName
         customHooker.xposedInterface = base
 
-        XposedBridge.log("$tag: Initialized for process $processName")
+        logInfo("Initialized for process $processName", base)
 
         val frameworkName = runCatching { base.frameworkName }.getOrDefault("unknown")
         val frameworkVersion = runCatching { base.frameworkVersion }.getOrDefault("unknown")
         val frameworkVersionCode = runCatching { base.frameworkVersionCode }.getOrDefault(-1L)
         val moduleProcess = resolveModuleProcessName(base) ?: "unknown"
-        XposedBridge.log(
-            "$tag: Framework from base: $frameworkName $frameworkVersion $frameworkVersionCode target_model_process: $moduleProcess"
+        logInfo(
+            "Framework from base: $frameworkName $frameworkVersion $frameworkVersionCode target_model_process: $moduleProcess",
+            base
         )
     }
 
@@ -86,12 +82,20 @@ class HookEntry() : XposedModule() {
         return General.PACKAGE_NAME == packageName
     }
 
-    private fun extractLegacyPackageClassLoader(param: PackageLoadedParam): ClassLoader? {
+    private fun extractPackageClassLoader(param: PackageLoadedParam): ClassLoader? {
         return runCatching {
-            param.javaClass.methods
-                .firstOrNull { it.name == "getClassLoader" && it.parameterCount == 0 }
-                ?.invoke(param) as? ClassLoader
+            param.defaultClassLoader
         }.getOrNull()
+            ?: runCatching {
+                param.javaClass.methods
+                    .firstOrNull { it.name == "getDefaultClassLoader" && it.parameterCount == 0 }
+                    ?.invoke(param) as? ClassLoader
+            }.getOrNull()
+            ?: runCatching {
+                param.javaClass.methods
+                    .firstOrNull { it.name == "getClassLoader" && it.parameterCount == 0 }
+                    ?.invoke(param) as? ClassLoader
+            }.getOrNull()
     }
 
     private fun resolveModuleProcessName(base: XposedInterface): String? {
@@ -101,5 +105,35 @@ class HookEntry() : XposedModule() {
                     .firstOrNull { it.name == "getApplicationInfo" && it.parameterCount == 0 }
                     ?.invoke(base) as? ApplicationInfo
             }.getOrNull()?.processName
+    }
+
+    private fun logInfo(message: String, base: XposedInterface? = null) {
+        logWithPriority(Log.INFO, message, null, base)
+    }
+
+    private fun logError(message: String, throwable: Throwable? = null, base: XposedInterface? = null) {
+        logWithPriority(Log.ERROR, message, throwable, base)
+    }
+
+    private fun logWithPriority(
+        priority: Int,
+        message: String,
+        throwable: Throwable?,
+        base: XposedInterface? = null
+    ) {
+        val logger = base ?: customHooker.xposedInterface
+        if (logger != null) {
+            if (throwable != null) {
+                logger.log(priority, tag, message, throwable)
+            } else {
+                logger.log(priority, tag, message)
+            }
+            return
+        }
+        if (throwable != null) {
+            log(priority, tag, message, throwable)
+        } else {
+            log(priority, tag, message)
+        }
     }
 }

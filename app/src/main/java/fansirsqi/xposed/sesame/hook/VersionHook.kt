@@ -2,12 +2,11 @@ package fansirsqi.xposed.sesame.hook
 
 import android.content.pm.PackageInfo
 import androidx.core.content.pm.PackageInfoCompat
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedHelpers
 import fansirsqi.xposed.sesame.data.General
 import fansirsqi.xposed.sesame.entity.AlipayVersion
 import fansirsqi.xposed.sesame.util.Log.printStackTrace
 import fansirsqi.xposed.sesame.util.Log.record
+import java.lang.reflect.Method
 import kotlin.concurrent.Volatile
 
 /**
@@ -35,50 +34,40 @@ object VersionHook {
      * @param classLoader 类加载器
      */
     fun installHook(classLoader: ClassLoader?) {
-        // 防止重复安装
         if (hookInstalled) {
             record(TAG, "⚠️ Hook 已安装,跳过")
             return
         }
 
         try {
-            XposedHelpers.findAndHookMethod(
-                "android.app.ApplicationPackageManager",
-                classLoader,
+            val packageManagerClass = Class.forName("android.app.ApplicationPackageManager", false, classLoader)
+            val getPackageInfoMethod = findMethod(
+                packageManagerClass,
                 "getPackageInfo",
                 String::class.java,
-                Int::class.javaPrimitiveType,
-                object : XC_MethodHook() {
-                    @Throws(Throwable::class)
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        try {
-                            val packageInfo = param.result as PackageInfo?
-
-                            // 只处理目标应用的包信息
-                            if (packageInfo != null &&
-                                General.PACKAGE_NAME == packageInfo.packageName
-                            ) {
-                                val versionName = packageInfo.versionName
-                                val longVersionCode = PackageInfoCompat.getLongVersionCode(packageInfo)
-                                val versionCode = (longVersionCode).toInt()
-
-                                // 只在第一次捕获时记录日志
-                                if (capturedVersion == null && versionName != null) {
-                                    capturedVersion = AlipayVersion(versionName)
-                                    record(
-                                        TAG, "✅ 捕获目标应用版本: " + versionName +
-                                                " (code: " + versionCode +
-                                                ", longCode: " + longVersionCode + ")"
-                                    )
-                                }
-                            }
-                        } catch (t: Throwable) {
-                            // 静默处理异常,避免影响应用正常运行
-                            printStackTrace(TAG, t)
+                Int::class.javaPrimitiveType!!
+            )
+            ApplicationHook.requireXposedInterface().hook(getPackageInfoMethod).intercept { chain ->
+                val result = chain.proceed()
+                try {
+                    val packageInfo = result as? PackageInfo
+                    if (packageInfo != null && General.PACKAGE_NAME == packageInfo.packageName) {
+                        val versionName = packageInfo.versionName
+                        val longVersionCode = PackageInfoCompat.getLongVersionCode(packageInfo)
+                        val versionCode = longVersionCode.toInt()
+                        if (capturedVersion == null && versionName != null) {
+                            capturedVersion = AlipayVersion(versionName)
+                            record(
+                                TAG,
+                                "✅ 捕获目标应用版本: $versionName (code: $versionCode, longCode: $longVersionCode)"
+                            )
                         }
                     }
+                } catch (t: Throwable) {
+                    printStackTrace(TAG, t)
                 }
-            )
+                result
+            }
 
             hookInstalled = true
             record(TAG, "✅ 版本号 Hook 安装成功")
@@ -113,5 +102,20 @@ object VersionHook {
         capturedVersion = null
         hookInstalled = false
         record(TAG, "🔄 版本号 Hook 状态已重置")
+    }
+
+    private fun findMethod(targetClass: Class<*>, name: String, vararg parameterTypes: Class<*>): Method {
+        var current: Class<*>? = targetClass
+        while (current != null) {
+            runCatching {
+                return current.getDeclaredMethod(name, *parameterTypes).apply {
+                    isAccessible = true
+                }
+            }
+            current = current.superclass
+        }
+        return targetClass.getMethod(name, *parameterTypes).apply {
+            isAccessible = true
+        }
     }
 }

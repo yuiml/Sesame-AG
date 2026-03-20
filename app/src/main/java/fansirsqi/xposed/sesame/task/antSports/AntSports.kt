@@ -1,8 +1,6 @@
 package fansirsqi.xposed.sesame.task.antSports
 
 import android.annotation.SuppressLint
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedHelpers
 import fansirsqi.xposed.sesame.data.Status
 import fansirsqi.xposed.sesame.data.StatusFlags
 import fansirsqi.xposed.sesame.entity.AlipayUser
@@ -285,30 +283,33 @@ class AntSports : ModelTask() {
             return
         }
         try {
-            XposedHelpers.findAndHookMethod(
+            val pedometerAgentClass = Class.forName(
                 "com.alibaba.health.pedometer.core.datasource.PedometerAgent",
-                classLoader,
-                "readDailyStep",
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        val originStep = param.result as Int
-                        rememberCurrentDailyStep(originStep)
-                        val targetStep = resolveTargetDailyStep(originStep)
-                        if (shouldOverrideDailyStep(originStep, targetStep)) {
-                            param.result = targetStep
-                            if (!Status.hasFlagToday(StatusFlags.FLAG_ANTSPORTS_SYNC_STEP_DONE)) {
-                                Status.setFlagToday(StatusFlags.FLAG_ANTSPORTS_SYNC_STEP_DONE)
-                                if (!syncStepHookLogged) {
-                                    syncStepHookLogged = true
-                                    Log.other(
-                                        "同步步数🏃🏻‍♂️[Hook][原始${originStep}步 + 自定义${targetStep - originStep}步 = ${targetStep}步]"
-                                    )
-                                }
-                            }
+                false,
+                classLoader
+            )
+            val readDailyStepMethod = pedometerAgentClass.getDeclaredMethod("readDailyStep").apply {
+                isAccessible = true
+            }
+            ApplicationHook.requireXposedInterface().hook(readDailyStepMethod).intercept { chain ->
+                val originStep = chain.proceed() as Int
+                rememberCurrentDailyStep(originStep)
+                val targetStep = resolveTargetDailyStep(originStep)
+                if (shouldOverrideDailyStep(originStep, targetStep)) {
+                    if (!Status.hasFlagToday(StatusFlags.FLAG_ANTSPORTS_SYNC_STEP_DONE)) {
+                        Status.setFlagToday(StatusFlags.FLAG_ANTSPORTS_SYNC_STEP_DONE)
+                        if (!syncStepHookLogged) {
+                            syncStepHookLogged = true
+                            Log.other(
+                                "同步步数🏃🏻‍♂️[Hook][原始${originStep}步 + 自定义${targetStep - originStep}步 = ${targetStep}步]"
+                            )
                         }
                     }
+                    targetStep
+                } else {
+                    originStep
                 }
-            )
+            }
             Log.record(TAG, "hook readDailyStep successfully")
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "hook readDailyStep err:", t)
