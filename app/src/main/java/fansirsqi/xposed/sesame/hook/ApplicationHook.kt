@@ -77,7 +77,6 @@ import fansirsqi.xposed.sesame.util.WorkflowRootGuard
 import fansirsqi.xposed.sesame.util.maps.UserMap
 import fansirsqi.xposed.sesame.util.maps.UserMap.currentUid
 import io.github.libxposed.api.XposedInterface
-import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
 import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam
 import java.io.File
 import java.lang.AutoCloseable
@@ -118,33 +117,17 @@ class ApplicationHook {
     }
 
     // --- 入口方法 ---
-    fun loadPackage(lpparam: PackageLoadedParam) {
-        if (General.PACKAGE_NAME != lpparam.packageName) return
-        val packageClassLoader = extractLegacyPackageClassLoader(lpparam) ?: run {
-            val defaultClassLoaderName = extractDefaultPackageClassLoader(lpparam)?.javaClass?.name ?: "null"
-            record(TAG, "跳过 onPackageLoaded：当前回调仅提供 defaultClassLoader=$defaultClassLoaderName，等待 onPackageReady")
-            return
-        }
-        handleHookLogic(
-            packageClassLoader,
-            lpparam.packageName,
-            lpparam.applicationInfo.sourceDir,
-            lpparam
-        )
-    }
-
     fun loadPackage(lpparam: PackageReadyParam) {
         if (General.PACKAGE_NAME != lpparam.packageName) return
         handleHookLogic(
             lpparam.classLoader,
             lpparam.packageName,
-            lpparam.applicationInfo.sourceDir,
-            lpparam
+            lpparam.applicationInfo.sourceDir
         )
     }
 
     @SuppressLint("PrivateApi")
-    private fun handleHookLogic(loader: ClassLoader?, packageName: String, apkPath: String, rawParam: Any?) {
+    private fun handleHookLogic(loader: ClassLoader?, packageName: String, apkPath: String) {
         classLoader = loader
         // 1. 初始化配置读取
         remotePreferences = runCatching {
@@ -154,7 +137,7 @@ class ApplicationHook {
         }.getOrNull()
 
         // 2. 进程检查
-        resolveProcessName(rawParam)
+        finalProcessName = processName
         if (!shouldHookProcess()) return
 
         init(Files.CONFIG_DIR)
@@ -174,36 +157,6 @@ class ApplicationHook {
         hookServiceLifecycle(apkPath)
 
         HookUtil.hookOtherService(classLoader!!)
-    }
-
-    private fun resolveProcessName(rawParam: Any?) {
-        if (rawParam is PackageLoadedParam || rawParam is PackageReadyParam) {
-            finalProcessName = processName
-        }
-    }
-
-    private fun extractDefaultPackageClassLoader(param: PackageLoadedParam): ClassLoader? {
-        return runCatching {
-            param.defaultClassLoader
-        }.getOrNull()
-            ?: runCatching {
-                param.javaClass.methods
-                    .firstOrNull { it.name == "getDefaultClassLoader" && it.parameterCount == 0 }
-                    ?.invoke(param) as? ClassLoader
-            }.getOrNull()
-    }
-
-    private fun extractLegacyPackageClassLoader(param: PackageLoadedParam): ClassLoader? {
-        return runCatching {
-            param.javaClass.methods
-                .firstOrNull { it.name == "getClassLoader" && it.parameterCount == 0 }
-                ?.invoke(param) as? ClassLoader
-        }.getOrNull()
-            ?: runCatching {
-                param.javaClass.methods
-                    .firstOrNull { it.name == "getAppClassLoader" && it.parameterCount == 0 }
-                    ?.invoke(param) as? ClassLoader
-            }.getOrNull()
     }
 
     private fun shouldHookProcess(): Boolean {

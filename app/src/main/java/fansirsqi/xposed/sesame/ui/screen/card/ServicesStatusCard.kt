@@ -43,13 +43,7 @@ fun ServicesStatusCard(
             .padding(horizontal = 8.dp, vertical = 4.dp), // 稍微调整间距
         colors = CardDefaults.elevatedCardColors(
             containerColor = when (status) {
-                is ServiceStatus.Active -> {
-                    if (status.type == "Root") {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.errorContainer
-                    }
-                }
+                is ServiceStatus.Active -> MaterialTheme.colorScheme.primary
                 is ServiceStatus.Inactive -> MaterialTheme.colorScheme.errorContainer
                 is ServiceStatus.Loading -> MaterialTheme.colorScheme.surfaceVariant
                 else -> {
@@ -67,8 +61,8 @@ fun ServicesStatusCard(
                     is ServiceStatus.Active -> {
                         val isRootReady = status.type == "Root"
                         Icon(
-                            if (isRootReady) Icons.Outlined.CheckCircle else Icons.Outlined.Warning,
-                            if (isRootReady) "已授权" else "权限不足"
+                            Icons.Outlined.CheckCircle,
+                            "已连接"
                         )
                         Column(Modifier.padding(start = 20.dp)) {
                             Text(

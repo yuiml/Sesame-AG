@@ -38,6 +38,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     sealed class ModuleStatus {
         data object Loading : ModuleStatus()
         data object NotActivated : ModuleStatus()
+        data class Unsupported(
+            val frameworkName: String,
+            val frameworkVersion: String,
+            val apiVersion: Int
+        ) : ModuleStatus()
         data class Activated(
             val frameworkName: String,     // 框架名称 (LSPosed, LSPatch...)
             val frameworkVersion: String,  // 版本号 (LSPosed才有，其他可能为空)
@@ -117,11 +122,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         if (lspState is ConnectionState.Connected) {
             val service = lspState.service
-            _moduleStatus.value = ModuleStatus.Activated(
-                frameworkName = runCatching { service.frameworkName }.getOrDefault("Xposed"),
-                frameworkVersion = runCatching { service.frameworkVersion }.getOrDefault(""),
-                apiVersion = runCatching { service.apiVersion }.getOrDefault(100)
-            )
+            val frameworkName = runCatching { service.frameworkName }.getOrDefault("Xposed")
+            val frameworkVersion = runCatching { service.frameworkVersion }.getOrDefault("")
+            val apiVersion = runCatching { service.apiVersion }.getOrDefault(0)
+            _moduleStatus.value = if (apiVersion >= 101) {
+                ModuleStatus.Activated(
+                    frameworkName = frameworkName,
+                    frameworkVersion = frameworkVersion,
+                    apiVersion = apiVersion
+                )
+            } else {
+                ModuleStatus.Unsupported(
+                    frameworkName = frameworkName,
+                    frameworkVersion = frameworkVersion,
+                    apiVersion = apiVersion
+                )
+            }
         } else {
             _moduleStatus.value = ModuleStatus.NotActivated
         }

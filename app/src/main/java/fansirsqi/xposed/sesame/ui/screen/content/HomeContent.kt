@@ -68,7 +68,10 @@ fun HomeContent(
                 status = moduleStatus,
                 expanded = isStatusCardExpanded,
                 onClick = {
-                    if (moduleStatus is MainViewModel.ModuleStatus.NotActivated) {
+                    if (
+                        moduleStatus is MainViewModel.ModuleStatus.NotActivated ||
+                        moduleStatus is MainViewModel.ModuleStatus.Unsupported
+                    ) {
                         isStatusCardExpanded = !isStatusCardExpanded//此处不可省略
                     }
                 }

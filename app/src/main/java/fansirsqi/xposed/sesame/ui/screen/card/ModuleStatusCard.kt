@@ -47,6 +47,7 @@ fun ModuleStatusCard(
             containerColor =
                 when (status) {
                     is MainViewModel.ModuleStatus.Activated -> MaterialTheme.colorScheme.primary
+                    is MainViewModel.ModuleStatus.Unsupported -> MaterialTheme.colorScheme.errorContainer
                     is MainViewModel.ModuleStatus.NotActivated -> MaterialTheme.colorScheme.errorContainer
                     is MainViewModel.ModuleStatus.Loading -> MaterialTheme.colorScheme.surfaceVariant
                 }
@@ -68,12 +69,23 @@ fun ModuleStatusCard(
                         }
                     }
 
+                    is MainViewModel.ModuleStatus.Unsupported -> {
+                        Icon(Icons.Outlined.Warning, "不受支持")
+                        Column(Modifier.padding(start = 20.dp)) {
+                            Text(text = "框架 API 不受支持", style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(4.dp))
+                            Text(text = "by ${status.frameworkName} ${status.frameworkVersion} API ${status.apiVersion}", style = MaterialTheme.typography.bodySmall)
+                            Text(text = "需要支持 libxposed API 101+ 的管理器", style = MaterialTheme.typography.bodyMedium)
+                            Text(text = "点击展开帮助", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+
                     is MainViewModel.ModuleStatus.NotActivated -> {
                         Icon(Icons.Outlined.Warning, "未激活")
                         Column(Modifier.padding(start = 20.dp)) {
                             Text(text = "模块未激活", style = MaterialTheme.typography.titleMedium)
                             Spacer(Modifier.height(4.dp))
-                            Text(text = "请尝试在Ls/Xposed中激活", style = MaterialTheme.typography.bodyMedium)
+                            Text(text = "请在支持 libxposed API 101+ 的管理器中激活", style = MaterialTheme.typography.bodyMedium)
                             Text(text = "点击展开帮助", style = MaterialTheme.typography.bodySmall)
                         }
                     }
@@ -97,6 +109,11 @@ fun ModuleStatusCard(
                     Spacer(modifier = Modifier.height(8.dp))
                     HtmlText(
                         html = "查看帮助 <a href=\"${General.PROJECT_HOMEPAGE_URL}\">项目仓库主页</a>"
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "当前模块仅支持 libxposed API 101+；若管理器或框架仍停留在 API 100，模块不会生效。",
+                        style = MaterialTheme.typography.bodySmall
                     )
                     Text(text = "Lspatch/Npatch/FPA/Opatch 请忽略此状态", style = MaterialTheme.typography.titleSmall)
                 }
