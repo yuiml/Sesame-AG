@@ -123,6 +123,12 @@ kotlin {
     }
 }
 
+composeCompiler {
+    // AGP 9.0.x uses built-in Kotlin 2.2.10. Disable Compose mapping generation
+    // so release builds don't require compose-group-mapping during minification.
+    includeComposeMappingFile = false
+}
+
 dependencies {
     // Shizuku 相关依赖 - 用于获取系统级权限
     implementation(libs.rikka.shizuku.api)        // Shizuku API
