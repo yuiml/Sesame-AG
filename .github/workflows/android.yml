@@ -245,7 +245,11 @@ jobs:
             "platform-tools" \
             "platforms;android-${ANDROID_API_LEVEL}" \
             "build-tools;${ANDROID_BUILD_TOOLS}"
+          # `yes` will receive SIGPIPE after sdkmanager finishes reading input.
+          # Run this pipeline without pipefail so the step reflects sdkmanager's exit code.
+          set +o pipefail
           yes | sdkmanager --licenses >/dev/null
+          set -o pipefail
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
